@@ -1,0 +1,13 @@
+{
+  // Nome deve bater com o Worker criado pelo Cloudflare Pages para evitar o erro
+  // WORKER_SELF_REFERENCE (o Pages deriva o nome sem hífens do nome do projeto).
+  "name": "motocasweb",
+  "compatibility_date": "2024-12-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "motocasweb"
+    }
+  ]
+}
