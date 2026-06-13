@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Fallback vazio evita exceção durante o prerender do Cloudflare.
-// As variáveis reais devem ser configuradas em Cloudflare Pages → Settings → Environment variables.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
+// Durante o prerender estático (build do Cloudflare sem env vars), createClient
+// rejeita string vazia pois verifica !supabaseUrl. O placeholder garante que o
+// módulo carrega sem erros; em runtime as variáveis reais substituem via Cloudflare Pages.
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
