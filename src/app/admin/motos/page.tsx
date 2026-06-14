@@ -7,8 +7,9 @@ import {
 } from '@/components/ui'
 import { motoService } from '@/lib/services'
 import { supabase } from '@/lib/supabase'
+import MotoQRModal from '@/components/admin/MotoQRModal'
 import type { Moto } from '@/types'
-import { Plus, Bike, Pencil, Trash2, Upload, Loader2 } from 'lucide-react'
+import { Plus, Bike, Pencil, Trash2, Upload, Loader2, QrCode } from 'lucide-react'
 
 const emptyForm = {
   nomemoto: '', placamoto: '', anomoto: '', cormoto: '', kmatualmoto: '', renavanmoto: '', foto_url: '',
@@ -24,6 +25,7 @@ export default function MotosPage() {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [toDelete, setToDelete] = useState<Moto | null>(null)
+  const [qrMoto, setQrMoto] = useState<Moto | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -111,6 +113,7 @@ export default function MotosPage() {
                         <p className="text-xs mt-0.5" style={{ color: '#39FF14' }}>{m.placamoto || 'Sem placa'} · {m.cormoto || '-'}</p>
                       </div>
                       <div className="flex gap-1">
+                        <button onClick={() => setQrMoto(m)} title="Gerar QR Code" className="p-2 rounded-lg text-white/50 hover:bg-white/10 hover:text-[#39FF14]"><QrCode size={15} /></button>
                         <button onClick={() => openEdit(m)} className="p-2 rounded-lg text-white/50 hover:bg-white/10 hover:text-white"><Pencil size={15} /></button>
                         <button onClick={() => setToDelete(m)} className="p-2 rounded-lg text-white/50 hover:bg-red-500/20 hover:text-red-400"><Trash2 size={15} /></button>
                       </div>
@@ -162,6 +165,8 @@ export default function MotosPage() {
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={confirmDelete}
         title="Deletar Moto" danger confirmLabel="Deletar"
         message={`Tem certeza que deseja deletar "${toDelete?.nomemoto}"?`} />
+
+      <MotoQRModal moto={qrMoto} onClose={() => setQrMoto(null)} />
     </>
   )
 }
