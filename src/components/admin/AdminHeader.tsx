@@ -1,7 +1,7 @@
 'use client'
 
 import { Bell } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { notificacaoService } from '@/lib/services'
 import { supabase } from '@/lib/supabase'
 
@@ -20,6 +20,12 @@ export default function AdminHeader({ title, subtitle, action }: AdminHeaderProp
   const [naoLidas, setNaoLidas] = useState(0)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const toastId = useRef(0)
+
+  const addToast = useCallback((message: string) => {
+    const id = ++toastId.current
+    setToasts((prev) => [...prev, { id, message }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000)
+  }, [])
 
   useEffect(() => {
     notificacaoService.contarNaoLidas().then(setNaoLidas).catch(() => {})
@@ -48,14 +54,7 @@ export default function AdminHeader({ title, subtitle, action }: AdminHeaderProp
       supabase.removeChannel(chanSol)
       supabase.removeChannel(chanPed)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  function addToast(message: string) {
-    const id = ++toastId.current
-    setToasts((prev) => [...prev, { id, message }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000)
-  }
+  }, [addToast])
 
   return (
     <>
