@@ -178,14 +178,32 @@ export default function WhatsAppPage() {
     setLoadingChats(true)
     try {
       const data = await api(`/chat/findChats/${config.instance}`)
-      const list: Chat[] = (Array.isArray(data) ? data : data?.chats || []).map((c: any) => ({
-        id: String(c.id || c.remoteJid || ''),
-        name: String(c.name || c.pushName || c.id || ''),
-        lastMessage: String(c.lastMessage?.message?.conversation || c.lastMessage?.body || ''),
-        lastTime: fmtTime(Number(c.updatedAt || c.lastMessage?.messageTimestamp || Date.now() / 1000)),
-        unread: Number(c.unreadCount || 0),
-        isGroup: String(c.id || '').includes('@g.us'),
-      }))
+      const list: Chat[] = (Array.isArray(data) ? data : data?.chats || []).map((c: any) => {
+        const lastMsg = typeof c.lastMessage === 'string' 
+          ? c.lastMessage 
+          : (c.lastMessage?.message?.conversation || c.lastMessage?.body || '');
+        
+        let lastTs = Date.now() / 1000;
+        if (c.updatedAt) {
+          const parsed = Date.parse(c.updatedAt);
+          if (!isNaN(parsed)) {
+            lastTs = parsed / 1000;
+          } else if (!isNaN(Number(c.updatedAt))) {
+            lastTs = Number(c.updatedAt);
+          }
+        } else if (c.lastMessage?.messageTimestamp) {
+          lastTs = Number(c.lastMessage.messageTimestamp);
+        }
+
+        return {
+          id: String(c.id || c.remoteJid || ''),
+          name: String(c.name || c.pushName || c.id || ''),
+          lastMessage: String(lastMsg || 'Sem mensagens'),
+          lastTime: fmtTime(lastTs),
+          unread: Number(c.unreadCount || 0),
+          isGroup: String(c.id || '').includes('@g.us'),
+        }
+      })
       setChats(list)
     } catch { /* silencioso */ }
     setLoadingChats(false)
