@@ -25,7 +25,15 @@ export const motoService = {
   },
   async updateMoto(id: number, updates: Partial<Moto>): Promise<boolean> {
     const { error } = await supabase.from('motos').update(updates).eq('id', id)
-    if (error) throw new Error(error.message)
+    if (error) {
+      console.error('[updateMoto] Supabase error:', {
+        message: error.message,
+        code: error.code,
+        details: (error as Record<string, unknown>).details,
+        hint: (error as Record<string, unknown>).hint,
+      })
+      throw new Error(`${error.message} (code: ${error.code})`)
+    }
     return true
   },
   async deleteMoto(id: number): Promise<boolean> {
