@@ -178,7 +178,7 @@ export default function WhatsAppPage() {
     setLoadingChats(true)
     try {
       const data = await api(`/chat/findChats/${config.instance}`)
-      const list: Chat[] = (Array.isArray(data) ? data : data?.chats || []).map((c: Record<string, unknown>) => ({
+      const list: Chat[] = (Array.isArray(data) ? data : data?.chats || []).map((c: any) => ({
         id: String(c.id || c.remoteJid || ''),
         name: String(c.name || c.pushName || c.id || ''),
         lastMessage: String(c.lastMessage?.message?.conversation || c.lastMessage?.body || ''),
@@ -206,9 +206,9 @@ export default function WhatsAppPage() {
     try {
       const data = await api(`/message/findMessages/${config.instance}?where[key.remoteJid]=${chat.id}&limit=50`)
       const msgs: Message[] = (Array.isArray(data) ? data : data?.messages?.records || data?.messages || [])
-        .map((m: Record<string, unknown>) => ({
-          id: String((m.key as Record<string, unknown>)?.id || m.id || Math.random()),
-          fromMe: Boolean((m.key as Record<string, unknown>)?.fromMe ?? m.fromMe),
+        .map((m: any) => ({
+          id: String(m.key?.id || m.id || Math.random()),
+          fromMe: Boolean(m.key?.fromMe ?? m.fromMe),
           body: String(m.message?.conversation || m.message?.extendedTextMessage?.text || m.body || ''),
           timestamp: Number(m.messageTimestamp || m.timestamp || Date.now() / 1000),
           type: String(m.messageType || m.type || 'text'),
