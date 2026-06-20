@@ -29,8 +29,8 @@ export const motoService = {
       console.error('[updateMoto] Supabase error:', {
         message: error.message,
         code: error.code,
-        details: (error as Record<string, unknown>).details,
-        hint: (error as Record<string, unknown>).hint,
+        details: error.details,
+        hint: error.hint,
       })
       throw new Error(`${error.message} (code: ${error.code})`)
     }
