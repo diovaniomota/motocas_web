@@ -258,7 +258,7 @@ export default function WhatsAppPage() {
     <>
       <AdminHeader
         title="WhatsApp"
-        subtitle="Central de atendimento via Evolution API"
+        subtitle="Central de atendimento via WhatsApp API"
         action={
           <div className="flex items-center gap-2">
             {/* Status */}
@@ -289,9 +289,9 @@ export default function WhatsAppPage() {
                 style={{ background: 'rgba(57,255,20,0.1)', border: '1px solid rgba(57,255,20,0.2)' }}>
                 <MessageCircle size={36} style={{ color: '#39FF14' }} />
               </div>
-              <h2 className="text-white text-xl font-bold mb-2">Configurar Evolution API</h2>
+              <h2 className="text-white text-xl font-bold mb-2">Configurar WhatsApp API</h2>
               <p className="text-white/50 text-sm leading-relaxed mb-6">
-                Conecte sua instância do Evolution API para gerenciar o WhatsApp diretamente aqui.
+                Conecte sua instância do WhatsApp API para gerenciar o WhatsApp diretamente aqui.
               </p>
               <button onClick={() => setShowSetup(true)}
                 className="px-6 py-3 rounded-xl font-bold text-black text-sm hover:opacity-90 transition-opacity"
@@ -564,7 +564,7 @@ function SetupModal({ current, onSave, onClose }: {
   onSave: (c: Config) => void
   onClose: () => void
 }) {
-  const [apiUrl, setApiUrl] = useState(current?.apiUrl ?? 'http://151.247.210.134:3333')
+  const [apiUrl, setApiUrl] = useState(current?.apiUrl ?? 'https://api-wa.sosmotocas.com.br')
   const [apiKey, setApiKey] = useState(current?.apiKey ?? '5fef669ab682646f17bea3576f31d28fe12bcead1fa266b7')
   const [instance, setInstance] = useState(current?.instance ?? 'motocas')
 
@@ -572,7 +572,7 @@ function SetupModal({ current, onSave, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-white/12 bg-[#111] p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white font-bold text-lg">Configurar Evolution API</h2>
+          <h2 className="text-white font-bold text-lg">Configurar WhatsApp API</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10">
             <X size={18} />
           </button>
@@ -587,7 +587,7 @@ function SetupModal({ current, onSave, onClose }: {
         <div className="mt-5 p-4 rounded-xl border border-white/8 bg-[#0a0a0a] text-xs text-white/50 leading-relaxed">
           <p className="font-semibold text-white/70 mb-1">Como obter esses dados:</p>
           <ol className="list-decimal list-inside space-y-1">
-            <li>Instale o <strong className="text-white/70">Evolution API</strong> na sua VPS (Docker)</li>
+            <li>Instale a sua <strong className="text-white/70">WhatsApp API</strong> na sua VPS (Docker)</li>
             <li>Copie a URL do painel e a API Key gerada</li>
             <li>Defina um nome para a instância (ex: motocas)</li>
           </ol>
