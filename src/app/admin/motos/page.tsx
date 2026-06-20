@@ -107,7 +107,12 @@ export default function MotosPage() {
       setModalOpen(false)
       load()
     } catch (e) {
-      setSaveError((e as Error).message)
+      const errMsg = (e as Error).message
+      if (errMsg.includes('401') || errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('jwt')) {
+        setSaveError('Sessão expirada ou sem permissão. Por favor, clique em "Sair" no menu lateral e faça login novamente.')
+      } else {
+        setSaveError(errMsg)
+      }
     } finally {
       setSaving(false)
     }

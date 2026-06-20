@@ -177,6 +177,24 @@ export default function WhatsAppPage() {
     }
   }, [config, connect])
 
+  /* ── Polling para verificar se continua conectado ── */
+  useEffect(() => {
+    if (state !== 'connected' || !config) return
+
+    const interval = setInterval(async () => {
+      try {
+        const data = await api(`/instance/connectionState/${config.instance}`)
+        const connected = data?.instance?.state === 'open' || data?.state === 'open'
+        if (!connected) {
+          clearInterval(interval)
+          connect()
+        }
+      } catch { /* ignorar erro temporário de rede */ }
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [state, config, api, connect])
+
   /* ── carregar configurações do Supabase ── */
   const loadDbSettings = useCallback(async () => {
     setLoadingSettings(true)

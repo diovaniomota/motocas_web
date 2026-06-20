@@ -82,6 +82,10 @@ CREATE POLICY frota_motos_anon_update ON public.motos
 REVOKE UPDATE ON public.motos FROM anon;
 GRANT  UPDATE (kmatualmoto) ON public.motos TO anon;
 
+-- Garante que o role authenticated (admins) e service_role continuem com acesso total
+GRANT ALL ON public.motos TO authenticated;
+GRANT ALL ON public.motos TO service_role;
+
 -- ====================== MANUTENÇÕES ======================
 ALTER TABLE public.manutencoes ENABLE ROW LEVEL SECURITY;
 
