@@ -1,7 +1,7 @@
 import Image from 'next/image'
 
 const CONTACT_PHONE = '(48) 99844-8042'
-const CONTACT_EMAIL = 'contato@motocas.com.br'
+const CONTACT_EMAIL = 'contato@sosmotocas.com.br'
 
 export default function PublicFooter() {
   return (
@@ -14,7 +14,7 @@ export default function PublicFooter() {
         <span className="text-sm font-bold" style={{ color: '#7CFF68' }}>{CONTACT_PHONE}</span>
         <span className="text-sm font-semibold text-white/70">{CONTACT_EMAIL}</span>
       </div>
-      <p className="text-white/54 text-xs">© 2025 MOTOCAS - Todos os direitos reservados</p>
+      <p className="text-white/54 text-xs">© 2026 MOTOCAS - Todos os direitos reservados</p>
     </footer>
   )
 }

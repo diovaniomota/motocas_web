@@ -12,7 +12,7 @@ import { MotoCard, PecaCard, SectionHeader } from '@/components/public/PublicCar
 const G = '#39FF14'
 const CONTACT_PHONE = '(48) 99844-8042'
 const CONTACT_PHONE_INTL = '5548998448042'
-const CONTACT_EMAIL = 'contato@motocas.com.br'
+const CONTACT_EMAIL = 'contato@sosmotocas.com.br'
 
 export default function HomePage() {
   const [motos, setMotos] = useState<Moto[]>([])
@@ -128,7 +128,7 @@ export default function HomePage() {
           <div className="mt-10 max-w-[760px] mx-auto flex flex-col gap-5">
             <ContactItem icon={<Phone size={28} />} label="Telefone" value={CONTACT_PHONE} subtitle="Atendimento comercial e suporte" href={`https://wa.me/${CONTACT_PHONE_INTL}`} />
             <ContactItem icon={<Mail size={28} />} label="E-mail" value={CONTACT_EMAIL} subtitle="Para dúvidas, propostas e currículos" href={`mailto:${CONTACT_EMAIL}`} />
-            <ContactItem icon={<MapPin size={28} />} label="Endereço" value="Rua das Motos, 123 - São Paulo, SP" subtitle="Base operacional e atendimento presencial" />
+            <ContactItem icon={<MapPin size={28} />} label="Endereço" value="R. Claudiomir Lima Brasil, 350 - São João (Margem Esquerda), Tubarão - SC, 88708-465" subtitle="Base operacional e atendimento presencial" />
           </div>
         </div>
       </section>
