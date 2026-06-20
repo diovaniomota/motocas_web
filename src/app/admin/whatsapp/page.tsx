@@ -564,8 +564,8 @@ function SetupModal({ current, onSave, onClose }: {
   onSave: (c: Config) => void
   onClose: () => void
 }) {
-  const [apiUrl, setApiUrl] = useState(current?.apiUrl ?? '')
-  const [apiKey, setApiKey] = useState(current?.apiKey ?? '')
+  const [apiUrl, setApiUrl] = useState(current?.apiUrl ?? 'http://151.247.210.134:3333')
+  const [apiKey, setApiKey] = useState(current?.apiKey ?? '5fef669ab682646f17bea3576f31d28fe12bcead1fa266b7')
   const [instance, setInstance] = useState(current?.instance ?? 'motocas')
 
   return (
