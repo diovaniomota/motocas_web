@@ -163,7 +163,7 @@ export default function WhatsAppPage() {
         } else {
           await fetchQr() // atualiza QR se expirou
         }
-      }, 20000)
+      }, 5000)
     } catch {
       setState('error')
     }
