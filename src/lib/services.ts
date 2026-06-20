@@ -25,7 +25,8 @@ export const motoService = {
   },
   async updateMoto(id: number, updates: Partial<Moto>): Promise<boolean> {
     const { error } = await supabase.from('motos').update(updates).eq('id', id)
-    return !error
+    if (error) throw new Error(error.message)
+    return true
   },
   async deleteMoto(id: number): Promise<boolean> {
     const { error } = await supabase.from('motos').delete().eq('id', id)

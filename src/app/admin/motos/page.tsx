@@ -9,7 +9,7 @@ import { motoService } from '@/lib/services'
 import { supabase } from '@/lib/supabase'
 import MotoQRModal from '@/components/admin/MotoQRModal'
 import type { Moto } from '@/types'
-import { Plus, Bike, Pencil, Trash2, Upload, Loader2, QrCode } from 'lucide-react'
+import { Plus, Bike, Pencil, Trash2, Upload, Loader2, QrCode, Search } from 'lucide-react'
 
 const emptyForm = {
   nomemoto: '', placamoto: '', anomoto: '', cormoto: '', kmatualmoto: '', renavanmoto: '', foto_url: '',
@@ -23,7 +23,10 @@ export default function MotosPage() {
   const [editing, setEditing] = useState<Moto | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [consultando, setConsultando] = useState(false)
+  const [consultaErro, setConsultaErro] = useState('')
   const [toDelete, setToDelete] = useState<Moto | null>(null)
   const [qrMoto, setQrMoto] = useState<Moto | null>(null)
 
@@ -35,9 +38,11 @@ export default function MotosPage() {
     setLoading(false)
   }
 
-  function openNew() { setEditing(null); setForm(emptyForm); setModalOpen(true) }
+  function openNew() { setEditing(null); setForm(emptyForm); setSaveError(''); setConsultaErro(''); setModalOpen(true) }
   function openEdit(m: Moto) {
     setEditing(m)
+    setSaveError('')
+    setConsultaErro('')
     setForm({
       nomemoto: m.nomemoto || '', placamoto: m.placamoto || '', anomoto: m.anomoto || '',
       cormoto: m.cormoto || '', kmatualmoto: m.kmatualmoto || '', renavanmoto: m.renavanmoto || '', foto_url: m.foto_url || '',
@@ -63,12 +68,49 @@ export default function MotosPage() {
     }
   }
 
+  async function consultarPlaca() {
+    const placa = form.placamoto.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+    if (placa.length !== 7) { setConsultaErro('Placa deve ter 7 caracteres.'); return }
+    setConsultando(true)
+    setConsultaErro('')
+    try {
+      const token = process.env.NEXT_PUBLIC_WDAPI_TOKEN
+      const res = await fetch(`https://wdapi2.com.br/consulta/${placa}/${token}`)
+      const data = await res.json()
+      if (data.error || data.erro) throw new Error('Placa não encontrada na base de dados.')
+      const anoFormatado = data.anoModelo && data.ano ? `${data.ano}/${data.anoModelo}` : (data.ano || data.anoModelo || '')
+      setForm((f) => ({
+        ...f,
+        nomemoto: f.nomemoto || `${data.marca || ''} ${data.modelo || ''}`.trim(),
+        cormoto: f.cormoto || (data.cor || ''),
+        anomoto: f.anomoto || anoFormatado,
+        renavanmoto: f.renavanmoto || (data.renavam || ''),
+      }))
+    } catch (e) {
+      setConsultaErro((e as Error).message || 'Erro ao consultar placa.')
+    } finally {
+      setConsultando(false)
+    }
+  }
+
   async function save() {
     if (!form.nomemoto) return
     setSaving(true)
-    if (editing) await motoService.updateMoto(editing.id, form)
-    else await motoService.createMoto({ ...form, estado_id: 1 })
-    setSaving(false); setModalOpen(false); load()
+    setSaveError('')
+    try {
+      if (editing) {
+        const ok = await motoService.updateMoto(editing.id, form)
+        if (!ok) throw new Error('Não foi possível salvar. Verifique sua conexão e tente novamente.')
+      } else {
+        await motoService.createMoto({ ...form, estado_id: 1 })
+      }
+      setModalOpen(false)
+      load()
+    } catch (e) {
+      setSaveError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function confirmDelete() {
@@ -133,7 +175,22 @@ export default function MotosPage() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Moto' : 'Nova Moto'} maxWidth="max-w-xl">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2"><Input label="Nome da Moto" required value={form.nomemoto} onChange={(v) => setForm({ ...form, nomemoto: v })} placeholder="Ex: Honda CG 160" /></div>
-          <Input label="Placa" value={form.placamoto} onChange={(v) => setForm({ ...form, placamoto: v })} placeholder="ABC-1234" />
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">Placa</label>
+            <div className="flex gap-2">
+              <Input label="" value={form.placamoto}
+                onChange={(v) => { setForm({ ...form, placamoto: v }); setConsultaErro('') }}
+                placeholder="ABC-1234" />
+              <button type="button" onClick={consultarPlaca} disabled={consultando}
+                title="Consultar dados do veículo pela placa"
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-lg font-semibold text-sm border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ borderColor: '#39FF1440' }}>
+                {consultando ? <Loader2 size={16} className="animate-spin" style={{ color: '#39FF14' }} /> : <Bike size={16} style={{ color: '#39FF14' }} />}
+                {consultando ? '' : 'Consultar'}
+              </button>
+            </div>
+            {consultaErro && <p className="text-xs text-red-400 mt-1">{consultaErro}</p>}
+          </div>
           <Input label="Ano" value={form.anomoto} onChange={(v) => setForm({ ...form, anomoto: v })} />
           <Input label="Cor" value={form.cormoto} onChange={(v) => setForm({ ...form, cormoto: v })} />
           <Input label="KM Atual" value={form.kmatualmoto} onChange={(v) => setForm({ ...form, kmatualmoto: v })} />
@@ -156,6 +213,7 @@ export default function MotosPage() {
             )}
           </div>
         </div>
+        {saveError && <p className="text-sm text-red-400 mt-2">{saveError}</p>}
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
           <Button onClick={save} loading={saving}>{editing ? 'Salvar' : 'Cadastrar'}</Button>
