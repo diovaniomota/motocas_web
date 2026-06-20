@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AdminHeader from '@/components/admin/AdminHeader'
 import {
-  MessageCircle, Send, Search, Settings, Wifi, WifiOff,
-  QrCode, Loader2, X, CheckCheck, Check, Phone, RefreshCw,
-  ChevronLeft, Image as ImageIcon, Smile,
+  MessageCircle, Settings, Wifi, WifiOff, QrCode, Loader2, X, RefreshCw,
+  Copy, Check, AlertTriangle, Info, ToggleLeft, ToggleRight, Save, Database
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 /* ────────────────────────────────────────────────
    TIPOS
@@ -17,44 +17,38 @@ interface Config {
   instance: string
 }
 
-interface Chat {
-  id: string
-  name: string
-  lastMessage: string
-  lastTime: string
-  unread: number
-  avatar?: string
-  isGroup: boolean
-}
-
-interface Message {
-  id: string
-  fromMe: boolean
-  body: string
-  timestamp: number
-  status?: 'sent' | 'delivered' | 'read'
-  type?: string
-}
-
 type ConnectionState = 'idle' | 'connecting' | 'qr' | 'connected' | 'error'
+
+type TabType = 'connection' | 'templates'
+
+const sqlSchema = `-- Cria a tabela de configurações
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Habilita RLS
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+
+-- Adiciona políticas para leitura pública e escrita por admins
+CREATE POLICY "Leitura pública para app_settings" ON public.app_settings FOR SELECT USING (true);
+CREATE POLICY "Admins podem gerenciar app_settings" ON public.app_settings FOR ALL TO authenticated USING (true);
+
+-- Insere valores padrões das mensagens automáticas
+INSERT INTO public.app_settings (key, value) VALUES
+('wa_enabled', 'true'),
+('template_solicitacao_recebida', '🏍️ *MOTOCAS - Solicitação Recebida!*\n\nOlá *{{nome}}*! 👋\n\nObrigado por solicitar o aluguel da moto *{{moto}}*!\n\n📅 *Período solicitado:*\n• Retirada: {{data_retirada}}\n• Devolução: {{data_devolucao}}\n\n⏳ Sua solicitação está sendo analisada pela nossa equipe.\n\nEm breve você receberá um retorno sobre a disponibilidade e valores.\n\n📞 Dúvidas? Responda esta mensagem!\n\n_Equipe Motocas_'),
+('template_solicitacao_aprovada', '🎉 *MOTOCAS - Solicitação APROVADA!*\n\nOlá *{{nome}}*! 👋\n\nÓtima notícia! Sua solicitação de aluguel foi *APROVADA*! ✅\n\n🏍️ *Moto:* {{moto}}\n📅 *Período:* {{data_retirada}} a {{data_devolucao}}\n\n📋 *Próximos passos:*\n1. Aguarde a liberação do pagamento\n2. Efetue o pagamento via PIX\n3. Compareça na data de retirada\n\nEm breve você receberá o link para pagamento!\n\n📞 Dúvidas? Responda esta mensagem!\n\n_Equipe Motocas_'),
+('template_solicitacao_rejeitada', '😔 *MOTOCAS - Solicitação não aprovada*\n\nOlá *{{nome}}*,\n\nInfelizmente sua solicitação de aluguel não foi aprovada desta vez.\n\n🏍️ *Moto:* {{moto}}\n📅 *Período:* {{data_retirada}} a {{data_devolucao}}\n\n📝 *Motivo:*\n{{motivo_rejeicao}}\n\nVocê pode fazer uma nova solicitação a qualquer momento!\n\n📞 Dúvidas? Responda esta mensagem.\n\n_Equipe Motocas_'),
+('template_contrato_gerado', '📄 *MOTOCAS - Seu Contrato está Pronto!*\n\nOlá *{{nome}}*! 🎉\n\nSeu contrato de locação foi gerado com sucesso!\n\n🏍️ *Moto:* {{moto}}\n📅 *Período:* {{data_retirada}} a {{data_devolucao}}\n\n📎 Segue em anexo o contrato completo.\n\n✅ *Próximo passo:*\nCompareça no local de retirada na data agendada com:\n• Documento com foto (RG/CNH)\n• CNH válida\n\n📞 Dúvidas? Responda esta mensagem!\n\n_Equipe Motocas_'),
+('template_pagamento_confirmado', '✅ *MOTOCAS - Pagamento Confirmado!*\n\nOlá *{{nome}}*! 🎉\n\nRecebemos seu pagamento com sucesso!\n\n🏍️ *Moto:* {{moto}}\n📅 *Período:* {{data_retirada}} a {{data_devolucao}}\n💰 *Valor:* R$ {{valor_total}}\n\n📄 *Próximo passo:*\nEstamos gerando seu contrato de locação.\nEm breve você receberá o documento por aqui!\n\n⏳ Aguarde...\n\n📞 Dúvidas? Responda esta mensagem!\n\n_Equipe Motocas_')
+ON CONFLICT (key) DO NOTHING;`;
 
 /* ────────────────────────────────────────────────
    HELPERS
 ──────────────────────────────────────────────── */
-function fmtTime(ts: number | string): string {
-  const d = new Date(typeof ts === 'number' ? ts * 1000 : ts)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  if (diff < 86400000 && d.getDate() === now.getDate()) {
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-  }
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-}
-
-function initials(name: string) {
-  return name.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
-
 function cfg(): Config | null {
   try {
     const raw = localStorage.getItem('wa_evo_config')
@@ -70,26 +64,31 @@ export default function WhatsAppPage() {
   const [showSetup, setShowSetup] = useState(false)
   const [state, setState] = useState<ConnectionState>('idle')
   const [qrBase64, setQrBase64] = useState<string>('')
-  const [chats, setChats] = useState<Chat[]>([])
-  const [activeChat, setActiveChat] = useState<Chat | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [texto, setTexto] = useState('')
-  const [search, setSearch] = useState('')
-  const [loadingChats, setLoadingChats] = useState(false)
-  const [loadingMsgs, setLoadingMsgs] = useState(false)
-  const [sending, setSending] = useState(false)
-  const endRef = useRef<HTMLDivElement>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [activeTab, setActiveTab] = useState<TabType>('connection')
+
+  // Configurações de mensagens automáticas
+  const [loadingSettings, setLoadingSettings] = useState(true)
+  const [dbError, setDbError] = useState<string | null>(null)
+  const [copiedSql, setCopiedSql] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [settings, setSettings] = useState({
+    wa_enabled: 'true',
+    template_solicitacao_recebida: '',
+    template_solicitacao_aprovada: '',
+    template_solicitacao_rejeitada: '',
+    template_contrato_gerado: '',
+    template_pagamento_confirmado: '',
+  })
+
   const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   /* carregar config salva */
   useEffect(() => {
     const saved = cfg()
-    if (saved) { setConfig(saved); }
+    if (saved) {
+      setConfig(saved)
+    }
   }, [])
-
-  /* scroll bottom nas mensagens */
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   /* ── API helpers ── */
   const api = useCallback(async (path: string, opts?: RequestInit) => {
@@ -124,8 +123,13 @@ export default function WhatsAppPage() {
     try {
       const data = await api(`/instance/connect/${config!.instance}`)
       const base64 = data?.base64 || data?.qrcode?.base64 || data?.qr
-      if (base64) { setQrBase64(base64); setState('qr') }
-    } catch { setState('error') }
+      if (base64) {
+        setQrBase64(base64)
+        setState('qr')
+      }
+    } catch {
+      setState('error')
+    }
   }, [api, config])
 
   /* ── conectar instância ── */
@@ -160,7 +164,9 @@ export default function WhatsAppPage() {
           await fetchQr() // atualiza QR se expirou
         }
       }, 20000)
-    } catch { setState('error') }
+    } catch {
+      setState('error')
+    }
   }, [config, checkConnection, fetchQr, api])
 
   /* ── ao ter config, verificar conexão ── */
@@ -168,106 +174,104 @@ export default function WhatsAppPage() {
     if (config) connect()
     return () => {
       if (qrPollRef.current) clearInterval(qrPollRef.current)
-      if (pollRef.current) clearInterval(pollRef.current)
     }
-  }, [config]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config, connect])
 
-  /* ── carregar chats quando conectado ── */
-  const loadChats = useCallback(async () => {
-    if (!config || state !== 'connected') return
-    setLoadingChats(true)
+  /* ── carregar configurações do Supabase ── */
+  const loadDbSettings = useCallback(async () => {
+    setLoadingSettings(true)
+    setDbError(null)
     try {
-      const data = await api(`/chat/findChats/${config.instance}`)
-      const list: Chat[] = (Array.isArray(data) ? data : data?.chats || []).map((c: any) => {
-        const lastMsg = typeof c.lastMessage === 'string' 
-          ? c.lastMessage 
-          : (c.lastMessage?.message?.conversation || c.lastMessage?.body || '');
-        
-        let lastTs = Date.now() / 1000;
-        if (c.updatedAt) {
-          const parsed = Date.parse(c.updatedAt);
-          if (!isNaN(parsed)) {
-            lastTs = parsed / 1000;
-          } else if (!isNaN(Number(c.updatedAt))) {
-            lastTs = Number(c.updatedAt);
-          }
-        } else if (c.lastMessage?.messageTimestamp) {
-          lastTs = Number(c.lastMessage.messageTimestamp);
+      const keys = [
+        'wa_enabled',
+        'template_solicitacao_recebida',
+        'template_solicitacao_aprovada',
+        'template_solicitacao_rejeitada',
+        'template_contrato_gerado',
+        'template_pagamento_confirmado'
+      ]
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('key, value')
+        .in('key', keys)
+
+      if (error) {
+        if (error.code === '42P01') {
+          setDbError('table_missing')
+        } else {
+          setDbError(error.message)
         }
+        return
+      }
 
-        return {
-          id: String(c.id || c.remoteJid || ''),
-          name: String(c.name || c.pushName || c.id || ''),
-          lastMessage: String(lastMsg || 'Sem mensagens'),
-          lastTime: fmtTime(lastTs),
-          unread: Number(c.unreadCount || 0),
-          isGroup: String(c.id || '').includes('@g.us'),
+      if (data) {
+        const map: Record<string, string> = {}
+        data.forEach((item) => {
+          map[item.key] = item.value
+        })
+        setSettings({
+          wa_enabled: map.wa_enabled ?? 'true',
+          template_solicitacao_recebida: map.template_solicitacao_recebida ?? '',
+          template_solicitacao_aprovada: map.template_solicitacao_aprovada ?? '',
+          template_solicitacao_rejeitada: map.template_solicitacao_rejeitada ?? '',
+          template_contrato_gerado: map.template_contrato_gerado ?? '',
+          template_pagamento_confirmado: map.template_pagamento_confirmado ?? '',
+        })
+      }
+    } catch (e: any) {
+      setDbError(e.message || 'Erro inesperado')
+    } finally {
+      setLoadingSettings(false)
+    }
+  }, [])
+
+  /* carregar configs ao iniciar */
+  useEffect(() => {
+    loadDbSettings()
+  }, [loadDbSettings])
+
+  /* ── salvar configurações do Supabase ── */
+  async function saveDbSettings() {
+    setSavingSettings(true)
+    try {
+      const payload = Object.entries(settings).map(([key, value]) => ({
+        key,
+        value: String(value),
+      }))
+
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert(payload, { onConflict: 'key' })
+
+      if (error) {
+        if (error.code === '42P01') {
+          setDbError('table_missing')
+        } else {
+          alert(`Erro ao salvar: ${error.message}`)
         }
-      })
-      setChats(list)
-    } catch { /* silencioso */ }
-    setLoadingChats(false)
-  }, [api, config, state])
+        return
+      }
 
-  useEffect(() => {
-    if (state === 'connected') {
-      loadChats()
-      pollRef.current = setInterval(loadChats, 15000)
+      alert('Configurações salvas com sucesso!')
+    } catch (e: any) {
+      alert(`Erro ao salvar: ${e.message || 'Erro inesperado'}`)
+    } finally {
+      setSavingSettings(false)
     }
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [state, loadChats])
-
-  /* ── carregar mensagens do chat ── */
-  const loadMessages = useCallback(async (chat: Chat) => {
-    if (!config) return
-    setLoadingMsgs(true)
-    try {
-      const data = await api(`/message/findMessages/${config.instance}?where[key.remoteJid]=${chat.id}&limit=50`)
-      const msgs: Message[] = (Array.isArray(data) ? data : data?.messages?.records || data?.messages || [])
-        .map((m: any) => ({
-          id: String(m.key?.id || m.id || Math.random()),
-          fromMe: Boolean(m.key?.fromMe ?? m.fromMe),
-          body: String(m.message?.conversation || m.message?.extendedTextMessage?.text || m.body || ''),
-          timestamp: Number(m.messageTimestamp || m.timestamp || Date.now() / 1000),
-          type: String(m.messageType || m.type || 'text'),
-          status: 'delivered',
-        }))
-        .filter((m: Message) => m.body)
-        .sort((a: Message, b: Message) => a.timestamp - b.timestamp)
-      setMessages(msgs)
-    } catch { setMessages([]) }
-    setLoadingMsgs(false)
-  }, [api, config])
-
-  useEffect(() => {
-    if (activeChat) loadMessages(activeChat)
-  }, [activeChat, loadMessages])
-
-  /* ── enviar mensagem ── */
-  async function enviar() {
-    if (!texto.trim() || !activeChat || !config) return
-    const msg = texto.trim()
-    setTexto('')
-    setSending(true)
-    const tmp: Message = {
-      id: `tmp_${Date.now()}`,
-      fromMe: true,
-      body: msg,
-      timestamp: Date.now() / 1000,
-      status: 'sent',
-    }
-    setMessages((p) => [...p, tmp])
-    try {
-      await api(`/message/sendText/${config.instance}`, {
-        method: 'POST',
-        body: JSON.stringify({ number: activeChat.id, text: msg }),
-      })
-    } catch { /* msg ainda aparece localmente */ }
-    setSending(false)
-    setTimeout(() => loadMessages(activeChat), 1500)
   }
 
-  const filtered = chats.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()))
+  function handleCopySql() {
+    navigator.clipboard.writeText(sqlSchema)
+    setCopiedSql(true)
+    setTimeout(() => setCopiedSql(false), 2000)
+  }
+
+  function appendPlaceholder(field: keyof typeof settings, placeholder: string) {
+    setSettings((prev) => ({
+      ...prev,
+      [field]: prev[field] + ` {{${placeholder}}}`
+    }))
+  }
 
   /* ═══════════════════════════════════════
      RENDER
@@ -276,20 +280,12 @@ export default function WhatsAppPage() {
     <>
       <AdminHeader
         title="WhatsApp"
-        subtitle="Central de atendimento via WhatsApp API"
+        subtitle="Configuração e integração com WhatsApp API"
         action={
           <div className="flex items-center gap-2">
-            {/* Status */}
             <StatusBadge state={state} />
 
-            {state === 'connected' && (
-              <button onClick={loadChats} title="Atualizar"
-                className="p-2 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white transition-colors">
-                <RefreshCw size={15} />
-              </button>
-            )}
-
-            <button onClick={() => setShowSetup(true)} title="Configurações"
+            <button onClick={() => setShowSetup(true)} title="Configurações da API"
               className="p-2 rounded-lg border border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white transition-colors">
               <Settings size={15} />
             </button>
@@ -297,243 +293,270 @@ export default function WhatsAppPage() {
         }
       />
 
-      <main className="flex-1 flex overflow-hidden" style={{ height: 'calc(100vh - 81px)' }}>
+      <main className="flex-1 flex flex-col bg-[#050505] p-6 overflow-y-auto" style={{ height: 'calc(100vh - 81px)' }}>
+        
+        {/* Navegação de Abas */}
+        <div className="flex border-b border-white/10 mb-6 gap-6">
+          <button
+            onClick={() => setActiveTab('connection')}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 -mb-[2px] ${
+              activeTab === 'connection'
+                ? 'border-[#39FF14] text-[#39FF14]'
+                : 'border-transparent text-white/50 hover:text-white'
+            }`}
+          >
+            Conexão da API
+          </button>
+          <button
+            onClick={() => setActiveTab('templates')}
+            className={`pb-3 font-semibold text-sm transition-colors border-b-2 -mb-[2px] ${
+              activeTab === 'templates'
+                ? 'border-[#39FF14] text-[#39FF14]'
+                : 'border-transparent text-white/50 hover:text-white'
+            }`}
+          >
+            Mensagens Automáticas
+          </button>
+        </div>
 
-        {/* ── Sem configuração ── */}
-        {!config && !showSetup && (
-          <div className="flex-1 flex items-center justify-center bg-[#050505]">
-            <div className="text-center max-w-sm">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5"
-                style={{ background: 'rgba(57,255,20,0.1)', border: '1px solid rgba(57,255,20,0.2)' }}>
-                <MessageCircle size={36} style={{ color: '#39FF14' }} />
-              </div>
-              <h2 className="text-white text-xl font-bold mb-2">Configurar WhatsApp API</h2>
-              <p className="text-white/50 text-sm leading-relaxed mb-6">
-                Conecte sua instância do WhatsApp API para gerenciar o WhatsApp diretamente aqui.
-              </p>
-              <button onClick={() => setShowSetup(true)}
-                className="px-6 py-3 rounded-xl font-bold text-black text-sm hover:opacity-90 transition-opacity"
-                style={{ backgroundColor: '#39FF14' }}>
-                Configurar agora
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── QR Code ── */}
-        {config && (state === 'qr' || state === 'connecting') && (
-          <div className="flex-1 flex items-center justify-center bg-[#050505]">
-            <div className="text-center">
-              {state === 'connecting' ? (
-                <>
-                  <Loader2 size={40} className="animate-spin mx-auto mb-4" style={{ color: '#39FF14' }} />
-                  <p className="text-white font-semibold">Conectando à instância...</p>
-                </>
-              ) : (
-                <>
-                  <QrCode size={28} className="mx-auto mb-4" style={{ color: '#39FF14' }} />
-                  <h2 className="text-white font-bold text-lg mb-1">Escaneie o QR Code</h2>
-                  <p className="text-white/50 text-sm mb-6">Abra o WhatsApp no celular → Dispositivos Conectados</p>
-                  {qrBase64 ? (
-                    <div className="p-4 bg-white rounded-2xl inline-block shadow-2xl">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
-                        alt="QR Code WhatsApp"
-                        className="w-64 h-64 object-contain"
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-64 h-64 bg-[#1a1a1a] rounded-2xl flex items-center justify-center mx-auto">
-                      <Loader2 size={32} className="animate-spin" style={{ color: '#39FF14' }} />
-                    </div>
-                  )}
-                  <p className="text-white/30 text-xs mt-4">QR code atualiza automaticamente a cada 20s</p>
-                  <button onClick={fetchQr} className="mt-3 text-xs font-semibold" style={{ color: '#39FF14' }}>
-                    Atualizar QR
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── Erro ── */}
-        {config && state === 'error' && (
-          <div className="flex-1 flex items-center justify-center bg-[#050505]">
-            <div className="text-center">
-              <WifiOff size={40} className="text-red-400 mx-auto mb-4" />
-              <h2 className="text-white font-bold text-lg mb-2">Falha na conexão</h2>
-              <p className="text-white/50 text-sm mb-4">Verifique a URL e a chave da API nas configurações.</p>
-              <div className="flex gap-3 justify-center">
-                <button onClick={connect}
-                  className="px-5 py-2.5 rounded-xl font-bold text-black text-sm hover:opacity-90"
+        {/* ── CONEXÃO DA API ── */}
+        {activeTab === 'connection' && (
+          <div className="flex-1 flex flex-col items-center justify-center max-w-4xl mx-auto w-full py-6">
+            {!config && !showSetup ? (
+              <div className="text-center max-w-sm">
+                <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5"
+                  style={{ background: 'rgba(57,255,20,0.1)', border: '1px solid rgba(57,255,20,0.2)' }}>
+                  <MessageCircle size={36} style={{ color: '#39FF14' }} />
+                </div>
+                <h2 className="text-white text-xl font-bold mb-2">Configurar WhatsApp API</h2>
+                <p className="text-white/50 text-sm leading-relaxed mb-6">
+                  Conecte sua instância do WhatsApp baseada na biblioteca Baileys para habilitar as notificações.
+                </p>
+                <button onClick={() => setShowSetup(true)}
+                  className="px-6 py-3 rounded-xl font-bold text-black text-sm hover:opacity-90 transition-opacity"
                   style={{ backgroundColor: '#39FF14' }}>
+                  Configurar agora
+                </button>
+              </div>
+            ) : state === 'connecting' ? (
+              <div className="text-center">
+                <Loader2 size={40} className="animate-spin mx-auto mb-4 text-[#39FF14]" />
+                <p className="text-white font-semibold">Conectando à instância...</p>
+              </div>
+            ) : state === 'qr' ? (
+              <div className="text-center">
+                <QrCode size={32} className="mx-auto mb-4 text-[#39FF14]" />
+                <h2 className="text-white font-bold text-lg mb-1">Escaneie o QR Code</h2>
+                <p className="text-white/50 text-sm mb-6">Abra o WhatsApp no celular → Dispositivos Conectados</p>
+                {qrBase64 ? (
+                  <div className="p-4 bg-white rounded-2xl inline-block shadow-2xl">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
+                      alt="QR Code WhatsApp"
+                      className="w-64 h-64 object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-64 h-64 bg-[#1a1a1a] rounded-2xl flex items-center justify-center mx-auto">
+                    <Loader2 size={32} className="animate-spin text-[#39FF14]" />
+                  </div>
+                )}
+                <p className="text-white/30 text-xs mt-4">O QR code atualiza automaticamente a cada 20s</p>
+                <button onClick={fetchQr} className="mt-3 text-xs font-semibold text-[#39FF14] hover:underline">
+                  Atualizar QR manualmente
+                </button>
+              </div>
+            ) : state === 'connected' ? (
+              <div className="text-center max-w-md bg-[#111] p-8 rounded-2xl border border-white/10 shadow-xl">
+                <div className="w-16 h-16 rounded-full bg-[#39FF14]/10 border border-[#39FF14]/30 flex items-center justify-center mx-auto mb-4">
+                  <Wifi className="text-[#39FF14]" size={28} />
+                </div>
+                <h2 className="text-white font-bold text-lg mb-1">WhatsApp Conectado!</h2>
+                <p className="text-white/50 text-sm mb-6">
+                  Sua API está conectada e pronta. O envio de mensagens do fluxo de aluguel ocorrerá de forma automática em segundo plano.
+                </p>
+                <div className="flex flex-col gap-2 text-left bg-[#070707] p-4 rounded-xl border border-white/5 mb-6 text-xs text-white/60">
+                  <div><span className="font-semibold text-white/40">Instância:</span> {config?.instance}</div>
+                  <div className="truncate"><span className="font-semibold text-white/40">Servidor API:</span> {config?.apiUrl}</div>
+                </div>
+                <button onClick={() => setShowSetup(true)}
+                  className="px-5 py-2.5 rounded-xl font-bold text-white text-xs border border-white/20 hover:bg-white/5 transition-colors">
+                  Alterar Conexão
+                </button>
+              </div>
+            ) : state === 'error' ? (
+              <div className="text-center">
+                <WifiOff size={40} className="text-red-400 mx-auto mb-4" />
+                <h2 className="text-white font-bold text-lg mb-2">Falha na conexão</h2>
+                <p className="text-white/50 text-sm mb-6">Verifique a URL e a chave da API nas configurações.</p>
+                <div className="flex gap-3 justify-center">
+                  <button onClick={connect}
+                    className="px-5 py-2.5 rounded-xl font-bold text-black text-sm hover:opacity-90"
+                    style={{ backgroundColor: '#39FF14' }}>
+                    Tentar novamente
+                  </button>
+                  <button onClick={() => setShowSetup(true)}
+                    className="px-5 py-2.5 rounded-xl font-bold text-white text-sm border border-white/20 hover:bg-white/5">
+                    Configurações
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center max-w-sm">
+                <Loader2 size={32} className="animate-spin text-[#39FF14] mx-auto mb-4" />
+                <p className="text-white/50 text-sm">Carregando status de conexão...</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── MENSAGENS AUTOMÁTICAS ── */}
+        {activeTab === 'templates' && (
+          <div className="max-w-4xl mx-auto w-full pb-12">
+            
+            {/* Alerta de tabela não configurada no Supabase */}
+            {dbError === 'table_missing' && (
+              <div className="bg-amber-950/20 border border-amber-500/30 p-5 rounded-2xl mb-6">
+                <div className="flex gap-3 items-start">
+                  <AlertTriangle className="text-amber-500 shrink-0 mt-0.5" size={20} />
+                  <div className="flex-1">
+                    <h3 className="text-amber-200 font-bold text-sm mb-1">Tabela de Configurações Não Encontrada</h3>
+                    <p className="text-white/60 text-xs leading-relaxed mb-4">
+                      A tabela `app_settings` não está criada na sua base do Supabase. Para poder editar e salvar as mensagens automáticas, execute o script SQL abaixo no painel do Supabase.
+                    </p>
+                    <div className="relative bg-black rounded-lg p-4 border border-white/10 font-mono text-[11px] text-white/80 overflow-x-auto max-h-48 mb-4">
+                      <pre>{sqlSchema}</pre>
+                      <button
+                        onClick={handleCopySql}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+                        title="Copiar SQL"
+                      >
+                        {copiedSql ? <Check size={14} className="text-[#39FF14]" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <button
+                      onClick={loadDbSettings}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5"
+                    >
+                      <RefreshCw size={12} />
+                      Já executei, verificar novamente
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {loadingSettings ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <Loader2 size={32} className="animate-spin text-[#39FF14] mb-3" />
+                <p className="text-white/50 text-sm">Carregando configurações e templates...</p>
+              </div>
+            ) : dbError && dbError !== 'table_missing' ? (
+              <div className="text-center py-10 bg-[#111] rounded-2xl border border-white/10">
+                <AlertTriangle className="text-red-400 mx-auto mb-3" size={32} />
+                <h3 className="text-white font-bold mb-1">Erro ao carregar banco</h3>
+                <p className="text-white/50 text-xs mb-4">{dbError}</p>
+                <button onClick={loadDbSettings} className="px-4 py-2 border border-white/10 hover:bg-white/5 text-white text-xs rounded-lg transition-colors">
                   Tentar novamente
                 </button>
-                <button onClick={() => setShowSetup(true)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-white text-sm border border-white/20 hover:bg-white/5">
-                  Configurações
-                </button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Chat Interface ── */}
-        {config && state === 'connected' && (
-          <>
-            {/* Lista de conversas */}
-            <div className="w-80 shrink-0 border-r border-white/8 flex flex-col bg-[#0a0a0a]">
-              {/* Header da lista */}
-              <div className="p-3 border-b border-white/8">
-                <div className="relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-                  <input value={search} onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Buscar conversa..."
-                    className="w-full pl-9 pr-3 py-2 rounded-lg bg-[#1a1a1a] border border-white/8 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors" />
-                </div>
-              </div>
-
-              {/* Lista */}
-              <div className="flex-1 overflow-y-auto">
-                {loadingChats && chats.length === 0 ? (
-                  <div className="flex justify-center py-10">
-                    <Loader2 size={24} className="animate-spin" style={{ color: '#39FF14' }} />
+            ) : (
+              <div className="space-y-6">
+                
+                {/* Switch de Ativação Geral */}
+                <div className="flex items-center justify-between bg-[#111] p-5 rounded-2xl border border-white/10">
+                  <div>
+                    <h3 className="text-white font-bold text-sm">Mensagens Automáticas de WhatsApp</h3>
+                    <p className="text-white/50 text-xs mt-0.5">Ative ou desative o envio automatizado nas etapas de aluguel</p>
                   </div>
-                ) : filtered.length === 0 ? (
-                  <div className="text-center py-10">
-                    <MessageCircle size={32} className="mx-auto mb-2 text-white/20" />
-                    <p className="text-white/40 text-sm">Nenhuma conversa</p>
-                  </div>
-                ) : filtered.map((c) => (
-                  <button key={c.id} onClick={() => setActiveChat(c)}
-                    className="w-full text-left px-4 py-3 border-b border-white/5 hover:bg-white/4 transition-colors flex items-center gap-3"
-                    style={activeChat?.id === c.id ? { backgroundColor: 'rgba(57,255,20,0.07)' } : {}}>
-                    {/* Avatar */}
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-sm font-bold text-black"
-                      style={{ backgroundColor: stringToColor(c.name) }}>
-                      {initials(c.name)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold text-white text-sm truncate">{c.name}</p>
-                        <span className="text-white/30 text-xs shrink-0 ml-1">{c.lastTime}</span>
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <p className="text-xs text-white/40 truncate">{c.lastMessage || 'Sem mensagens'}</p>
-                        {c.unread > 0 && (
-                          <span className="ml-1 shrink-0 w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center text-black"
-                            style={{ backgroundColor: '#39FF14' }}>{c.unread > 9 ? '9+' : c.unread}</span>
-                        )}
-                      </div>
-                    </div>
+                  <button
+                    onClick={() => setSettings(prev => ({ ...prev, wa_enabled: prev.wa_enabled === 'true' ? 'false' : 'true' }))}
+                    className="p-1 rounded-full text-white/80 hover:text-white transition-colors"
+                  >
+                    {settings.wa_enabled === 'true' ? (
+                      <ToggleRight size={38} className="text-[#39FF14]" />
+                    ) : (
+                      <ToggleLeft size={38} className="text-white/30" />
+                    )}
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Área da conversa */}
-            <div className="flex-1 flex flex-col bg-[#050505]">
-              {!activeChat ? (
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-                      style={{ background: 'rgba(57,255,20,0.08)' }}>
-                      <MessageCircle size={28} style={{ color: '#39FF14' }} />
-                    </div>
-                    <p className="text-white/50 text-sm">Selecione uma conversa</p>
-                  </div>
                 </div>
-              ) : (
-                <>
-                  {/* Header da conversa */}
-                  <div className="px-5 py-3.5 border-b border-white/8 flex items-center gap-3 bg-[#0c0c0c]">
-                    <button className="lg:hidden p-1 text-white/60 hover:text-white"
-                      onClick={() => setActiveChat(null)}>
-                      <ChevronLeft size={20} />
-                    </button>
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-black"
-                      style={{ backgroundColor: stringToColor(activeChat.name) }}>
-                      {initials(activeChat.name)}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-white text-sm">{activeChat.name}</p>
-                      <p className="text-white/40 text-xs">{activeChat.isGroup ? 'Grupo' : 'Contato'}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => loadMessages(activeChat)} title="Atualizar mensagens"
-                        className="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-colors">
-                        <RefreshCw size={15} />
-                      </button>
-                      <button title="Ligar" className="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-colors">
-                        <Phone size={15} />
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* Mensagens */}
-                  <div className="flex-1 overflow-y-auto p-5 space-y-1.5"
-                    style={{ background: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")" }}>
-                    {loadingMsgs ? (
-                      <div className="flex justify-center py-10">
-                        <Loader2 size={24} className="animate-spin" style={{ color: '#39FF14' }} />
-                      </div>
-                    ) : messages.length === 0 ? (
-                      <div className="flex items-center justify-center h-full">
-                        <p className="text-white/30 text-sm">Nenhuma mensagem</p>
-                      </div>
-                    ) : messages.map((m) => (
-                      <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[72%] px-4 py-2 rounded-2xl text-sm shadow-md ${m.fromMe
-                          ? 'rounded-br-sm text-black'
-                          : 'rounded-bl-sm bg-[#1e1e1e] text-white'}`}
-                          style={m.fromMe ? { backgroundColor: '#39FF14' } : {}}>
-                          {m.type === 'imageMessage' ? (
-                            <div className="flex items-center gap-2 text-xs opacity-70">
-                              <ImageIcon size={14} /> Imagem
-                            </div>
-                          ) : (
-                            <p className="leading-relaxed break-words">{m.body}</p>
-                          )}
-                          <div className={`flex items-center justify-end gap-1 mt-1 ${m.fromMe ? 'text-black/50' : 'text-white/30'}`}>
-                            <span className="text-[10px]">{fmtTime(m.timestamp)}</span>
-                            {m.fromMe && (
-                              m.status === 'read'
-                                ? <CheckCheck size={12} className="text-blue-400" />
-                                : m.status === 'delivered'
-                                  ? <CheckCheck size={12} />
-                                  : <Check size={12} />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    <div ref={endRef} />
-                  </div>
+                {/* Templates Forms */}
+                <div className="space-y-6">
+                  
+                  {/* Template 1: Recebida */}
+                  <TemplateCard
+                    title="1. Solicitação Recebida"
+                    description="Enviada ao cliente e ao administrador no momento em que uma nova solicitação de aluguel é enviada pelo site."
+                    value={settings.template_solicitacao_recebida}
+                    onChange={(val) => setSettings(prev => ({ ...prev, template_solicitacao_recebida: val }))}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao']}
+                    onPlaceholderClick={(p) => appendPlaceholder('template_solicitacao_recebida', p)}
+                  />
 
-                  {/* Input */}
-                  <div className="p-3 border-t border-white/8 flex items-center gap-2 bg-[#0c0c0c]">
-                    <button className="p-2 text-white/40 hover:text-white transition-colors">
-                      <Smile size={20} />
-                    </button>
-                    <input
-                      value={texto}
-                      onChange={(e) => setTexto(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && enviar()}
-                      placeholder="Digite uma mensagem..."
-                      className="flex-1 px-4 py-2.5 rounded-full bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors"
-                    />
-                    <button onClick={enviar} disabled={!texto.trim() || sending}
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-black transition-opacity disabled:opacity-40"
-                      style={{ backgroundColor: '#39FF14' }}>
-                      {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </>
+                  {/* Template 2: Aprovada */}
+                  <TemplateCard
+                    title="2. Solicitação Aprovada"
+                    description="Enviada ao cliente quando o administrador aprova a locação e o pagamento fica liberado."
+                    value={settings.template_solicitacao_aprovada}
+                    onChange={(val) => setSettings(prev => ({ ...prev, template_solicitacao_aprovada: val }))}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao']}
+                    onPlaceholderClick={(p) => appendPlaceholder('template_solicitacao_aprovada', p)}
+                  />
+
+                  {/* Template 3: Rejeitada */}
+                  <TemplateCard
+                    title="3. Solicitação Recusada"
+                    description="Enviada ao cliente quando o administrador rejeita/cancela a proposta de aluguel."
+                    value={settings.template_solicitacao_rejeitada}
+                    onChange={(val) => setSettings(prev => ({ ...prev, template_solicitacao_rejeitada: val }))}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao', 'motivo_rejeicao']}
+                    onPlaceholderClick={(p) => appendPlaceholder('template_solicitacao_rejeitada', p)}
+                  />
+
+                  {/* Template 4: Contrato Gerado */}
+                  <TemplateCard
+                    title="4. Contrato Gerado"
+                    description="Enviada ao cliente assim que o contrato PDF da locação é assinado ou disponibilizado."
+                    value={settings.template_contrato_gerado}
+                    onChange={(val) => setSettings(prev => ({ ...prev, template_contrato_gerado: val }))}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao']}
+                    onPlaceholderClick={(p) => appendPlaceholder('template_contrato_gerado', p)}
+                  />
+
+                  {/* Template 5: Pagamento Confirmado */}
+                  <TemplateCard
+                    title="5. Pagamento Confirmado"
+                    description="Enviada ao cliente confirmando o recebimento da transação financeira."
+                    value={settings.template_pagamento_confirmado}
+                    onChange={(val) => setSettings(prev => ({ ...prev, template_pagamento_confirmado: val }))}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao', 'valor_total']}
+                    onPlaceholderClick={(p) => appendPlaceholder('template_pagamento_confirmado', p)}
+                  />
+
+                </div>
+
+                {/* Botão de Gravar */}
+                <div className="flex justify-end pt-4">
+                  <button
+                    onClick={saveDbSettings}
+                    disabled={savingSettings}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-black text-sm hover:opacity-90 transition-opacity disabled:opacity-40"
+                    style={{ backgroundColor: '#39FF14' }}
+                  >
+                    {savingSettings ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Save size={16} />
+                    )}
+                    Salvar Configurações
+                  </button>
+                </div>
+
+              </div>
+            )}
+          </div>
         )}
       </main>
 
@@ -575,6 +598,49 @@ function StatusBadge({ state }: { state: ConnectionState }) {
 }
 
 /* ────────────────────────────────────────────────
+   TEMPLATE CARD
+──────────────────────────────────────────────── */
+interface TemplateCardProps {
+  title: string
+  description: string
+  value: string
+  onChange: (v: string) => void
+  placeholders: string[]
+  onPlaceholderClick: (p: string) => void
+}
+
+function TemplateCard({ title, description, value, onChange, placeholders, onPlaceholderClick }: TemplateCardProps) {
+  return (
+    <div className="bg-[#111] p-5 rounded-2xl border border-white/10">
+      <h4 className="text-white font-bold text-sm mb-1">{title}</h4>
+      <p className="text-white/40 text-[11px] mb-4 leading-relaxed">{description}</p>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Digite o texto da mensagem automática..."
+        rows={6}
+        className="w-full px-4 py-3 rounded-xl bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors font-mono leading-relaxed resize-y"
+      />
+      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+        <span className="text-[10px] text-white/30 uppercase font-semibold mr-1 flex items-center gap-1">
+          <Info size={10} /> Placeholders:
+        </span>
+        {placeholders.map((p) => (
+          <button
+            key={p}
+            onClick={() => onPlaceholderClick(p)}
+            className="px-2 py-1 rounded bg-[#222] hover:bg-[#333] border border-white/5 hover:border-white/10 text-[10px] text-white/70 hover:text-white font-mono transition-all"
+            title={`Inserir {{${p}}}`}
+          >
+            {`{{${p}}}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────────
    MODAL DE CONFIGURAÇÃO
 ──────────────────────────────────────────────── */
 function SetupModal({ current, onSave, onClose }: {
@@ -603,11 +669,11 @@ function SetupModal({ current, onSave, onClose }: {
         </div>
 
         <div className="mt-5 p-4 rounded-xl border border-white/8 bg-[#0a0a0a] text-xs text-white/50 leading-relaxed">
-          <p className="font-semibold text-white/70 mb-1">Como obter esses dados:</p>
+          <p className="font-semibold text-white/70 mb-1">Configuração de Conexão:</p>
           <ol className="list-decimal list-inside space-y-1">
-            <li>Instale a sua <strong className="text-white/70">WhatsApp API</strong> na sua VPS (Docker)</li>
-            <li>Copie a URL do painel e a API Key gerada</li>
-            <li>Defina um nome para a instância (ex: motocas)</li>
+            <li>Informe o domínio com protocolo de SSL seguro (<strong className="text-white/70">https://</strong>)</li>
+            <li>Use a API Key fornecida para sua instância Baileys</li>
+            <li>Informe o identificador correspondente da instância</li>
           </ol>
         </div>
 
@@ -629,9 +695,15 @@ function SetupModal({ current, onSave, onClose }: {
   )
 }
 
-function Field({ label, placeholder, value, onChange, type = 'text' }: {
-  label: string; placeholder: string; value: string; onChange: (v: string) => void; type?: string
-}) {
+interface FieldProps {
+  label: string
+  placeholder: string
+  value: string
+  onChange: (v: string) => void
+  type?: string
+}
+
+function Field({ label, placeholder, value, onChange, type = 'text' }: FieldProps) {
   return (
     <div>
       <label className="block text-sm font-medium text-white/70 mb-1.5">{label}</label>
@@ -639,12 +711,4 @@ function Field({ label, placeholder, value, onChange, type = 'text' }: {
         className="w-full px-4 py-2.5 rounded-xl bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors" />
     </div>
   )
-}
-
-/* ── Cor determinística por nome ── */
-function stringToColor(str: string): string {
-  const colors = ['#39FF14', '#00D4AA', '#6C63FF', '#FF6B6B', '#FFD93D', '#4ECDC4', '#A8E063', '#F7971E']
-  let hash = 0
-  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
-  return colors[Math.abs(hash) % colors.length]
 }
