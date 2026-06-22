@@ -73,9 +73,10 @@ export default function PainelClientePage() {
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session?.user) { router.push('/login'); return }
 
+    const user = session.user
     setUserEmail(user.email || '')
 
     const { data: userData } = await supabase

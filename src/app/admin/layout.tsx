@@ -12,18 +12,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     async function checkAuth() {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        if (sessionError || !session?.user) {
           router.push('/login')
           return
         }
 
+        const user = session.user
+
         // Verificar se é admin
-        const { data: userData } = await supabase
+        const { data: userData, error } = await supabase
           .from('users')
           .select('is_admin')
           .eq('uid', user.id)
           .maybeSingle()
+
+        if (error) {
+          console.error('Erro de rede ao verificar permissão:', error)
+          // Em caso de erro de rede, não deslogamos imediatamente, 
+          // mas como segurança, redirecionamos para login.
+          // Porém, para evitar deslogar "sozinho", podemos apenas alertar ou tentar novamente.
+          // O melhor é mostrar um erro e não dar push('/login').
+          alert('Erro ao verificar permissão. Verifique sua conexão.')
+          return
+        }
 
         if (!userData?.is_admin) {
           router.push('/login')
@@ -33,7 +45,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         setLoading(false)
       } catch (err) {
         console.error('Erro na autenticação do admin:', err)
-        router.push('/login')
       }
     }
 
