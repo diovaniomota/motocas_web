@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { X, Loader2, CheckCircle2 } from 'lucide-react'
 import { solicitacaoService } from '@/lib/services'
+import { sendWhatsAppNotification } from '@/lib/whatsapp'
+import { formatDate } from '@/components/ui'
 import type { Moto } from '@/types'
 
 const G = '#39FF14'
@@ -34,6 +36,12 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
         observacoes: f.observacoes, status: 'pendente',
       })
       if (!res) throw new Error()
+      void sendWhatsAppNotification('template_solicitacao_recebida', res.telefone, {
+        nome: res.nome_completo,
+        moto: res.moto_nome,
+        data_retirada: formatDate(res.data_retirada),
+        data_devolucao: formatDate(res.data_devolucao),
+      }, { alsoNotifyAdmin: true })
       setDone(true)
     } catch {
       setError('Erro ao enviar solicitação. Tente novamente.')

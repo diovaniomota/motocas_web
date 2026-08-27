@@ -118,13 +118,11 @@ export default function PainelClientePage() {
   const aprovadas   = solicitacoes.filter(s => s.status === 'aprovada').length
   const total       = solicitacoes.length
 
-  // solicitações com pagamento liberado
-  const comPagamento = solicitacoes.filter(s =>
-    s.status === 'aprovada' && s.valor_total && s.valor_total > 0 && !s.pagamento_pago
-  )
-  const outras = solicitacoes.filter(s =>
-    !(s.status === 'aprovada' && s.valor_total && s.valor_total > 0 && !s.pagamento_pago)
-  )
+  // solicitações com pagamento liberado (aprovada ou já em geração de contrato) e ainda não pago
+  const aguardandoPagamento = (s: Solicitacao) =>
+    (s.status === 'aprovada' || s.status === 'gerar_contrato') && !!s.valor_total && s.valor_total > 0 && !s.pagamento_pago
+  const comPagamento = solicitacoes.filter(aguardandoPagamento)
+  const outras = solicitacoes.filter(s => !aguardandoPagamento(s))
 
   return (
     <div className="min-h-screen bg-black text-white">

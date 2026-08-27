@@ -261,13 +261,31 @@ export const solicitacaoService = {
   },
   async aprovarSolicitacao(id: number, atendidoPor: string): Promise<boolean> {
     const { error } = await supabase.from('solicitacoes_aluguel')
-      .update({ status: 'aprovada', atendido_por: atendidoPor, data_atendimento: new Date().toISOString() })
+      .update({
+        status: 'aprovada',
+        atendido_por: atendidoPor,
+        data_atendimento: new Date().toISOString(),
+        pagamento_liberado: true,
+        data_liberacao_pagamento: new Date().toISOString(),
+      })
       .eq('id', id)
     return !error
   },
   async rejeitarSolicitacao(id: number, motivo: string, atendidoPor: string): Promise<boolean> {
     const { error } = await supabase.from('solicitacoes_aluguel')
       .update({ status: 'rejeitada', observacao_rejeicao: motivo, atendido_por: atendidoPor, data_atendimento: new Date().toISOString() })
+      .eq('id', id)
+    return !error
+  },
+  async marcarContratoGerado(id: number): Promise<boolean> {
+    const { error } = await supabase.from('solicitacoes_aluguel')
+      .update({ status: 'gerar_contrato' })
+      .eq('id', id)
+    return !error
+  },
+  async confirmarPagamento(id: number, valorTotal: number): Promise<boolean> {
+    const { error } = await supabase.from('solicitacoes_aluguel')
+      .update({ pagamento_pago: true, data_pagamento: new Date().toISOString(), valor_total: valorTotal })
       .eq('id', id)
     return !error
   },

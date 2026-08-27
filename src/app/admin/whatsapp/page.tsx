@@ -17,7 +17,7 @@ interface Config {
   instance: string
 }
 
-type ConnectionState = 'idle' | 'connecting' | 'qr' | 'connected' | 'error'
+type ConnectionState = 'idle' | 'connecting' | 'qr' | 'connected' | 'error' | 'stuck'
 
 type TabType = 'connection' | 'templates'
 
@@ -73,6 +73,7 @@ export default function WhatsAppPage() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [settings, setSettings] = useState({
     wa_enabled: 'true',
+    wa_admin_number: '',
     template_solicitacao_recebida: '',
     template_solicitacao_aprovada: '',
     template_solicitacao_rejeitada: '',
@@ -81,6 +82,7 @@ export default function WhatsAppPage() {
   })
 
   const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const giveUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /* carregar config salva */
   useEffect(() => {
@@ -113,6 +115,7 @@ export default function WhatsAppPage() {
       if (connected) {
         setState('connected')
         if (qrPollRef.current) clearInterval(qrPollRef.current)
+        if (giveUpTimerRef.current) { clearTimeout(giveUpTimerRef.current); giveUpTimerRef.current = null }
       }
       return connected
     } catch { return false }
@@ -126,7 +129,10 @@ export default function WhatsAppPage() {
       if (base64) {
         setQrBase64(base64)
         setState('qr')
+        if (giveUpTimerRef.current) { clearTimeout(giveUpTimerRef.current); giveUpTimerRef.current = null }
       }
+      // sem base64 ainda (ex.: HTTP 202 "aguardando QR") — mantém aguardando,
+      // o timer de desistência em connect() cobre o caso de nunca chegar
     } catch {
       setState('error')
     }
@@ -136,6 +142,14 @@ export default function WhatsAppPage() {
   const connect = useCallback(async () => {
     if (!config) return
     setState('connecting')
+
+    // Se o backend nunca gerar o QR (ex.: sessão Baileys presa em loop de
+    // reconexão), desiste após um tempo em vez de girar o spinner para sempre
+    if (giveUpTimerRef.current) clearTimeout(giveUpTimerRef.current)
+    giveUpTimerRef.current = setTimeout(() => {
+      setState((prev) => (prev === 'connecting' ? 'stuck' : prev))
+    }, 45000)
+
     try {
       // Tenta verificar estado atual primeiro
       const connected = await checkConnection()
@@ -174,6 +188,7 @@ export default function WhatsAppPage() {
     if (config) connect()
     return () => {
       if (qrPollRef.current) clearInterval(qrPollRef.current)
+      if (giveUpTimerRef.current) clearTimeout(giveUpTimerRef.current)
     }
   }, [config, connect])
 
@@ -202,6 +217,7 @@ export default function WhatsAppPage() {
     try {
       const keys = [
         'wa_enabled',
+        'wa_admin_number',
         'template_solicitacao_recebida',
         'template_solicitacao_aprovada',
         'template_solicitacao_rejeitada',
@@ -229,6 +245,7 @@ export default function WhatsAppPage() {
         })
         setSettings({
           wa_enabled: map.wa_enabled ?? 'true',
+          wa_admin_number: map.wa_admin_number ?? '',
           template_solicitacao_recebida: map.template_solicitacao_recebida ?? '',
           template_solicitacao_aprovada: map.template_solicitacao_aprovada ?? '',
           template_solicitacao_rejeitada: map.template_solicitacao_rejeitada ?? '',
@@ -420,6 +437,27 @@ export default function WhatsAppPage() {
                   </button>
                 </div>
               </div>
+            ) : state === 'stuck' ? (
+              <div className="text-center max-w-md">
+                <AlertTriangle size={40} className="text-amber-400 mx-auto mb-4" />
+                <h2 className="text-white font-bold text-lg mb-2">Servidor não gerou o QR Code</h2>
+                <p className="text-white/50 text-sm mb-6 leading-relaxed">
+                  A API respondeu, mas não conseguiu gerar um QR Code a tempo. Isso costuma acontecer quando o
+                  serviço do WhatsApp (Baileys) fica preso tentando reconectar com uma sessão antiga. Verifique os
+                  logs do servidor e, se necessário, limpe a sessão salva e reinicie o serviço.
+                </p>
+                <div className="flex gap-3 justify-center">
+                  <button onClick={connect}
+                    className="px-5 py-2.5 rounded-xl font-bold text-black text-sm hover:opacity-90"
+                    style={{ backgroundColor: '#39FF14' }}>
+                    Tentar novamente
+                  </button>
+                  <button onClick={() => setShowSetup(true)}
+                    className="px-5 py-2.5 rounded-xl font-bold text-white text-sm border border-white/20 hover:bg-white/5">
+                    Configurações
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="text-center max-w-sm">
                 <Loader2 size={32} className="animate-spin text-[#39FF14] mx-auto mb-4" />
@@ -498,6 +536,20 @@ export default function WhatsAppPage() {
                       <ToggleLeft size={38} className="text-white/30" />
                     )}
                   </button>
+                </div>
+
+                {/* Número do admin para receber alerta de nova solicitação */}
+                <div className="bg-[#111] p-5 rounded-2xl border border-white/10">
+                  <h3 className="text-white font-bold text-sm mb-1">Número do Administrador</h3>
+                  <p className="text-white/50 text-xs mb-3">
+                    Recebe uma cópia da mensagem de &quot;Solicitação Recebida&quot; sempre que um cliente envia um novo pedido pelo site.
+                  </p>
+                  <input
+                    value={settings.wa_admin_number}
+                    onChange={(e) => setSettings(prev => ({ ...prev, wa_admin_number: e.target.value }))}
+                    placeholder="5548999999999"
+                    className="w-full px-4 py-2.5 rounded-xl bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors"
+                  />
                 </div>
 
                 {/* Templates Forms */}
@@ -582,7 +634,19 @@ export default function WhatsAppPage() {
       {showSetup && (
         <SetupModal
           current={config}
-          onSave={(c) => {
+          onSave={async (c) => {
+            // também persiste no Supabase para que o "motor" de mensagens automáticas
+            // (disparado do site público e de outras telas do admin) saiba com qual
+            // servidor/instância falar, já que este app é 100% estático (sem backend próprio)
+            const { error } = await supabase.from('app_settings').upsert([
+              { key: 'wa_api_url', value: c.apiUrl },
+              { key: 'wa_api_key', value: c.apiKey },
+              { key: 'wa_instance', value: c.instance },
+            ], { onConflict: 'key' })
+            if (error) {
+              alert(`Erro ao salvar configuração no banco: ${error.message}\n\nAs mensagens automáticas não vão funcionar até isso ser salvo.`)
+              return
+            }
             localStorage.setItem('wa_evo_config', JSON.stringify(c))
             setConfig(c)
             setShowSetup(false)
@@ -605,6 +669,7 @@ function StatusBadge({ state }: { state: ConnectionState }) {
     qr: { label: 'Aguardando QR', color: '#F59E0B', icon: <QrCode size={13} /> },
     connected: { label: 'Conectado', color: '#39FF14', icon: <Wifi size={13} /> },
     error: { label: 'Erro', color: '#F87171', icon: <WifiOff size={13} /> },
+    stuck: { label: 'Sem resposta', color: '#F59E0B', icon: <AlertTriangle size={13} /> },
   }
   const { label, color, icon } = map[state]
   return (
