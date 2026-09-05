@@ -63,3 +63,17 @@ body {
 .fundo3d-entrada {
   animation: fundo3d-entrada 1.4s ease-out both;
 }
+
+/* zoom lento na foto do hero: dá vida sem competir com o título.
+   Quem pediu menos movimento no sistema não recebe nenhum. */
+@keyframes hero-zoom {
+  from { transform: scale(1.06); }
+  to   { transform: scale(1.16); }
+}
+.hero-zoom img {
+  animation: hero-zoom 26s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-zoom img { animation: none; }
+}

@@ -6,6 +6,7 @@ import { Zap, ShoppingBag, Bike, Phone, Mail, MapPin, ExternalLink } from 'lucid
 import { motoService, pecaService } from '@/lib/services'
 import type { Moto, Peca } from '@/types'
 import Fundo3D from '@/components/public/Fundo3D'
+import HeroImagem from '@/components/public/HeroImagem'
 import SecaoPrecos from '@/components/public/SecaoPrecos'
 import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
 import PublicNavbar from '@/components/public/PublicNavbar'
@@ -35,7 +36,10 @@ export default function HomePage() {
 
       {/* HERO */}
       <section id="inicio" className="relative overflow-hidden" style={{ minHeight: 760, background: 'linear-gradient(135deg, #030303, #0A1209, #050505)' }}>
-        <Fundo3D comMoto />
+        <Fundo3D />
+        {/* foto de pessoa pilotando, configurada em app_settings.hero_imagem;
+            sem ela o hero fica exatamente como está hoje */}
+        <HeroImagem />
         <div className="absolute top-20 -right-20 w-80 h-80 rounded-full opacity-20" style={{ background: G, filter: 'blur(120px)' }} />
         <div className="absolute -left-10 bottom-10 w-56 h-56 rounded-full bg-white/3" />
         <div className="max-w-[1320px] mx-auto px-6 py-32 relative z-10">

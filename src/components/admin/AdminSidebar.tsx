@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, FileText, Users, Bike, AlertTriangle, Wrench,
-  ClipboardCheck, Mail, Package, ShoppingCart, MessageCircle, LogOut, Tag,
+  ClipboardCheck, Mail, Package, ShoppingCart, MessageCircle, LogOut, Tag, Globe,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { supabase } from '@/lib/supabase'
@@ -33,6 +33,7 @@ const sections = [
       { href: '/admin/pecas', label: 'Peças', icon: Package },
       { href: '/admin/pedidos', label: 'Pedidos de Peças', icon: ShoppingCart },
       { href: '/admin/whatsapp', label: 'WhatsApp', icon: MessageCircle },
+      { href: '/admin/site', label: 'Site', icon: Globe },
     ],
   },
 ]
