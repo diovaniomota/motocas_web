@@ -10,56 +10,17 @@
 // descarta o resto da biblioteca, que é a maior parte dela.
 import { useEffect, useRef } from 'react'
 import {
-  AdditiveBlending, BufferAttribute, BufferGeometry, Color, DoubleSide, Fog, Mesh,
-  PerspectiveCamera, PlaneGeometry, Points, PointsMaterial, Scene, ShaderMaterial,
-  TextureLoader, WebGLRenderer, type Texture,
+  BoxGeometry, BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, DoubleSide,
+  EdgesGeometry, ExtrudeGeometry, Fog, Group, LineBasicMaterial, LineSegments, Mesh,
+  MeshBasicMaterial, PerspectiveCamera, Points, PointsMaterial, Scene, Shape,
+  TorusGeometry, TubeGeometry, Vector3, WebGLRenderer,
 } from 'three'
+import {
+  FORMAS, LARGURA, RAIOS_POR_RODA, RODA_ARO_INTERNO, RODA_FRENTE, RODA_RAIO,
+  RODA_TRAS, RODA_TUBO, TRACOS,
+} from './motoPerfil'
 
 const VERDE = 0x39ff14
-
-/* ── recorte do fundo da foto ──────────────────────────────────
-   As fotos da frota são de catálogo: perfil lateral em fundo cinza claro de
-   estúdio. Em vez de exigir PNG recortado, o próprio shader descarta o que
-   for claro E sem cor — a moto é preta com tanque vermelho, então sobra.
-   O corte é suave para a borda não ficar serrilhada. */
-const FRAGMENTO = `
-  varying vec2 vUv;
-  uniform sampler2D mapa;
-  uniform float opacidade;
-
-  void main() {
-    vec4 c = texture2D(mapa, vUv);
-    float maxc = max(c.r, max(c.g, c.b));
-    float minc = min(c.r, min(c.g, c.b));
-    float saturacao = maxc - minc;
-    float luz = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-
-    // limiares calibrados na foto real da frota: acima disso sobrava a sombra
-    // do estúdio no rodapé e um halo claro em volta da silhueta
-    float fundo = smoothstep(0.55, 0.78, luz) * (1.0 - smoothstep(0.05, 0.16, saturacao));
-    float a = (1.0 - fundo) * opacidade;
-    if (a < 0.01) discard;
-    gl_FragColor = vec4(c.rgb, a);
-  }
-`
-
-const VERTICE = `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`
-
-/** Brilho suave sob a moto, para ela não parecer colada no vazio. */
-const BRILHO = `
-  varying vec2 vUv;
-  void main() {
-    float d = distance(vUv, vec2(0.5));
-    float i = smoothstep(0.5, 0.0, d);
-    gl_FragColor = vec4(0.224, 1.0, 0.078, i * 0.18);
-  }
-`
 
 /** Pontos numa grade no plano do chão; a onda é aplicada quadro a quadro. */
 function malha(colunas: number, linhas: number, espaco: number) {
@@ -75,12 +36,87 @@ function malha(colunas: number, linhas: number, espaco: number) {
   return posicoes
 }
 
+/** Monta a moto em neon a partir do perfil: volumes extrudados com aresta
+ *  acesa, linhas como tubos e rodas como toros. Devolve o grupo e as rodas,
+ *  que giram por fora. */
+function construirMoto(cor: number) {
+  const grupo = new Group()
+  const descartaveis: { dispose(): void }[] = []
+
+  const preenchimento = new MeshBasicMaterial({
+    color: cor, transparent: true, opacity: 0.16, side: DoubleSide, depthWrite: false,
+  })
+  const aresta = new LineBasicMaterial({ color: cor, transparent: true, opacity: 0.95 })
+  const solido = new MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.9 })
+  descartaveis.push(preenchimento, aresta, solido)
+
+  // volumes: tanque, banco, motor, farol, paralama
+  for (const forma of FORMAS) {
+    const shape = new Shape()
+    forma.pontos.forEach(([x, y], i) => (i ? shape.lineTo(x, y) : shape.moveTo(x, y)))
+    shape.closePath()
+
+    const geo = new ExtrudeGeometry(shape, { depth: LARGURA * 2, bevelEnabled: false })
+    geo.translate(0, 0, -LARGURA)
+    descartaveis.push(geo)
+
+    grupo.add(new Mesh(geo, preenchimento))
+
+    const contorno = new EdgesGeometry(geo)
+    descartaveis.push(contorno)
+    grupo.add(new LineSegments(contorno, aresta))
+  }
+
+  // linhas: quadro, garfo, escape. Duplicadas nos dois lados para terem volume
+  for (const traco of TRACOS) {
+    const curva = new CatmullRomCurve3(traco.pontos.map(([x, y]) => new Vector3(x, y, 0)))
+    const geo = new TubeGeometry(curva, 24, traco.grossura, 6, false)
+    descartaveis.push(geo)
+    for (const z of [-LARGURA * 0.75, LARGURA * 0.75]) {
+      const m = new Mesh(geo, solido)
+      m.position.z = z
+      grupo.add(m)
+    }
+  }
+
+  // rodas
+  const rodas: Group[] = []
+  for (const [cx, cy] of [RODA_TRAS, RODA_FRENTE]) {
+    const roda = new Group()
+
+    const pneu = new TorusGeometry(RODA_RAIO, RODA_TUBO, 8, 40)
+    const aro = new TorusGeometry(RODA_ARO_INTERNO, RODA_TUBO * 0.45, 6, 28)
+    descartaveis.push(pneu, aro)
+    roda.add(new Mesh(pneu, solido), new Mesh(aro, solido))
+
+    const raio = new BoxGeometry(RODA_RAIO * 1.7, RODA_TUBO * 0.5, RODA_TUBO * 0.5)
+    descartaveis.push(raio)
+    for (let i = 0; i < RAIOS_POR_RODA; i++) {
+      const m = new Mesh(raio, solido)
+      m.rotation.z = (i * Math.PI) / RAIOS_POR_RODA
+      roda.add(m)
+    }
+
+    roda.position.set(cx, cy, 0)
+    grupo.add(roda)
+    rodas.push(roda)
+  }
+
+  // o perfil é desenhado com o chão em y=0; centraliza para girar pelo meio
+  grupo.position.y = -0.85
+
+  const externo = new Group()
+  externo.add(grupo)
+
+  return { objeto: externo, rodas, descartaveis }
+}
+
 export default function CenaTres({
-  intensidade = 1, moto,
+  intensidade = 1, comMoto = false,
 }: {
   intensidade?: number
-  /** URL da foto da moto. Sem ela, fica só a malha. */
-  moto?: string
+  /** liga a moto em neon na cena; sem ela fica só a malha */
+  comMoto?: boolean
 }) {
   const container = useRef<HTMLDivElement | null>(null)
 
@@ -123,48 +159,13 @@ export default function CenaTres({
     alvo.appendChild(renderer.domElement)
 
     /* ── a moto ── */
-    let planoMoto: Mesh | null = null
-    let planoBrilho: Mesh | null = null
-    let textura: Texture | null = null
-
-    if (moto) {
-      const carregador = new TextureLoader()
-      carregador.setCrossOrigin('anonymous')
-      carregador.load(moto, (tex) => {
-        textura = tex
-        const img = tex.image as { width: number; height: number }
-        const proporcao = img.width / Math.max(1, img.height)
-
-        const altura = 7.5
-        planoMoto = new Mesh(
-          new PlaneGeometry(altura * proporcao, altura),
-          new ShaderMaterial({
-            uniforms: { mapa: { value: tex }, opacidade: { value: 1 } },
-            vertexShader: VERTICE,
-            fragmentShader: FRAGMENTO,
-            transparent: true,
-            side: DoubleSide,
-            depthWrite: false,
-          }),
-        )
-        planoMoto.position.set(0, 4.2, 6)
-        cena.add(planoMoto)
-
-        planoBrilho = new Mesh(
-          new PlaneGeometry(altura * proporcao * 1.1, altura * 0.5),
-          new ShaderMaterial({
-            uniforms: {},
-            vertexShader: VERTICE,
-            fragmentShader: BRILHO,
-            transparent: true,
-            blending: AdditiveBlending,
-            depthWrite: false,
-          }),
-        )
-        planoBrilho.rotation.x = -Math.PI / 2
-        planoBrilho.position.set(0, 0.15, 6)
-        cena.add(planoBrilho)
-      })
+    let moto: ReturnType<typeof construirMoto> | null = null
+    if (comMoto) {
+      moto = construirMoto(VERDE)
+      // à direita e um pouco à frente, longe do texto do hero
+      moto.objeto.position.set(6.2, 3.4, 4)
+      moto.objeto.scale.setScalar(2.6)
+      cena.add(moto.objeto)
     }
 
     function medir() {
@@ -215,16 +216,14 @@ export default function CenaTres({
 
       pontos.rotation.y = t * 0.04
 
-      if (planoMoto) {
-        // flutua devagar e inclina de leve seguindo o mouse: dá volume sem
-        // revelar que é um plano
-        planoMoto.position.y = 4.2 + Math.sin(t * 0.8) * 0.22
-        planoMoto.rotation.y = mouseX * 0.16
-        planoMoto.rotation.z = -mouseX * 0.02
-        if (planoBrilho) {
-          planoBrilho.position.y = 0.15
-          ;(planoBrilho.material as ShaderMaterial).opacity = 1
-        }
+      if (moto) {
+        // rodas girando: é o que faz a moto parecer em movimento e não um
+        // desenho parado
+        for (const roda of moto.rodas) roda.rotation.z = -t * 2.4
+        moto.objeto.position.y = 3.4 + Math.sin(t * 0.7) * 0.28
+        // oscila em torno do eixo vertical para revelar que tem volume,
+        // sem nunca mostrar a moto de frente (onde o perfil não existe)
+        moto.objeto.rotation.y = -0.35 + Math.sin(t * 0.35) * 0.28 + mouseX * 0.12
       }
 
       camera.position.x += (mouseX * 2.2 - camera.position.x) * 0.03
@@ -241,20 +240,17 @@ export default function CenaTres({
       window.removeEventListener('pointermove', moveu)
       window.removeEventListener('resize', medir)
 
-      for (const m of [planoMoto, planoBrilho]) {
-        if (!m) continue
-        cena.remove(m)
-        m.geometry.dispose()
-        ;(m.material as ShaderMaterial).dispose()
+      if (moto) {
+        cena.remove(moto.objeto)
+        for (const d of moto.descartaveis) d.dispose()
       }
-      textura?.dispose()
 
       renderer.dispose()
       geometria.dispose()
       pontos.material.dispose()
       if (renderer.domElement.parentNode === alvo) alvo.removeChild(renderer.domElement)
     }
-  }, [intensidade, moto])
+  }, [intensidade, comMoto])
 
   return <div ref={container} className="absolute inset-0" aria-hidden="true" />
 }
