@@ -53,7 +53,7 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
         moto: res.moto_nome,
         data_retirada: formatDate(res.data_retirada),
         data_devolucao: formatDate(res.data_devolucao),
-      }, { alsoNotifyAdmin: true })
+      }, { alsoNotifyAdmin: true, solicitacaoId: res.id })
       setDone(true)
     } catch {
       setError('Erro ao enviar solicitação. Tente novamente.')

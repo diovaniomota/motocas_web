@@ -10,13 +10,23 @@ import { solicitacaoService, authService } from '@/lib/services'
 import { exportToCSV } from '@/lib/csv'
 import { sendWhatsAppNotification } from '@/lib/whatsapp'
 import { gerarContrato, linkDeAssinatura, criarLinkPagamento } from '@/lib/edge-functions'
-import { maskCpf, digitos, cpfValido } from '@/lib/mascaras'
+import { maskCpf, digitos, cpfValido, maskMoeda, moedaParaNumero } from '@/lib/mascaras'
+import { registrarEvento } from '@/lib/eventos'
+import HistoricoSolicitacao from '@/components/admin/HistoricoSolicitacao'
+import AvisoFalhasWhatsApp from '@/components/admin/AvisoFalhasWhatsApp'
 import type { SolicitacaoAluguel } from '@/types'
 import { SOLICITACAO_STATUS } from '@/types'
 import {
   Mail, Phone, Bike, Calendar, Check, X, Trash2, User, Download, FileSignature, Wallet,
-  Loader2, FileText, Link2, Copy,
+  Loader2, FileText, Link2, Copy, History,
 } from 'lucide-react'
+
+const TABELA = 'solicitacoes_aluguel'
+
+/** Valor do banco (150) para o texto da máscara ("150,00"). */
+function valorParaCampo(v: number | null | undefined) {
+  return v ? maskMoeda(String(Math.round(v * 100))) : ''
+}
 
 function waParams(s: SolicitacaoAluguel, extra?: Record<string, string>) {
   return {
@@ -57,7 +67,10 @@ export default function SolicitacoesPage() {
   async function aprovar(s: SolicitacaoAluguel) {
     const user = await authService.getCurrentUser()
     const ok = await solicitacaoService.aprovarSolicitacao(s.id!, user?.email || 'admin')
-    if (ok) void sendWhatsAppNotification('template_solicitacao_aprovada', s.telefone, waParams(s))
+    if (ok) {
+      void registrarEvento({ tabela: TABELA, registroId: s.id!, acao: 'aprovou', descricao: 'Solicitação aprovada' })
+      void sendWhatsAppNotification('template_solicitacao_aprovada', s.telefone, waParams(s), { solicitacaoId: s.id })
+    }
     setDetail(null); load()
   }
   async function confirmReject() {
@@ -65,7 +78,12 @@ export default function SolicitacoesPage() {
     const user = await authService.getCurrentUser()
     const ok = await solicitacaoService.rejeitarSolicitacao(rejecting.id!, motivo, user?.email || 'admin')
     if (ok) {
-      void sendWhatsAppNotification('template_solicitacao_rejeitada', rejecting.telefone, waParams(rejecting, { motivo_rejeicao: motivo }))
+      void registrarEvento({
+        tabela: TABELA, registroId: rejecting.id!, acao: 'rejeitou',
+        descricao: `Solicitação rejeitada: ${motivo}`, dados: { motivo },
+      })
+      void sendWhatsAppNotification('template_solicitacao_rejeitada', rejecting.telefone,
+        waParams(rejecting, { motivo_rejeicao: motivo }), { solicitacaoId: rejecting.id })
     }
     setRejecting(null); setMotivo(''); setDetail(null); load()
   }
@@ -75,8 +93,12 @@ export default function SolicitacoesPage() {
     setProcessando(s.id!)
     try {
       const { token } = await gerarContrato(s.id!)
+      void registrarEvento({
+        tabela: TABELA, registroId: s.id!, acao: 'gerou_contrato',
+        descricao: s.contrato_pdf_url ? 'Contrato gerado novamente' : 'Contrato gerado e enviado',
+      })
       void sendWhatsAppNotification('template_contrato_gerado', s.telefone,
-        waParams(s, { link_contrato: linkDeAssinatura(token) }))
+        waParams(s, { link_contrato: linkDeAssinatura(token) }), { solicitacaoId: s.id })
       await load()
     } catch (e) {
       alert(`Não foi possível gerar o contrato: ${e instanceof Error ? e.message : e}`)
@@ -88,7 +110,7 @@ export default function SolicitacoesPage() {
   /* Cria o link de checkout na Pagar.me (PIX, cartão ou boleto) e envia ao cliente. */
   async function gerarCobranca() {
     if (!cobrando) return
-    const valor = Number(valorCobranca.replace(',', '.'))
+    const valor = moedaParaNumero(valorCobranca)
     if (!valor || valor <= 0) { alert('Informe um valor válido.'); return }
     if (!cpfValido(cpfCobranca)) { alert('Informe um CPF com 11 dígitos.'); return }
 
@@ -98,6 +120,11 @@ export default function SolicitacoesPage() {
       // corrige de vez no cadastro: solicitações antigas guardam CPF com lixo
       if (cpf !== (cobrando.cpf ?? '')) {
         await solicitacaoService.atualizarStatus(cobrando.id!, { cpf })
+        void registrarEvento({
+          tabela: TABELA, registroId: cobrando.id!, acao: 'corrigiu_cpf',
+          descricao: 'CPF corrigido ao gerar a cobrança',
+          dados: { de: cobrando.cpf, para: cpf },
+        })
       }
 
       const { checkoutUrl, paymentLinkId } = await criarLinkPagamento({
@@ -110,8 +137,14 @@ export default function SolicitacoesPage() {
         },
       })
       await solicitacaoService.salvarLinkPagamento(cobrando.id!, checkoutUrl, paymentLinkId, valor)
+      void registrarEvento({
+        tabela: TABELA, registroId: cobrando.id!, acao: 'gerou_cobranca',
+        descricao: `Cobrança de ${formatCurrency(valor)} gerada na Pagar.me`,
+        dados: { valor, pagarme_id: paymentLinkId },
+      })
       void sendWhatsAppNotification('template_link_pagamento', cobrando.telefone,
-        waParams(cobrando, { link_pagamento: checkoutUrl, valor_total: formatCurrency(valor) }))
+        waParams(cobrando, { link_pagamento: checkoutUrl, valor_total: formatCurrency(valor) }),
+        { solicitacaoId: cobrando.id })
       setCobrando(null); setValorCobranca('')
       await load()
     } catch (e) {
@@ -129,16 +162,30 @@ export default function SolicitacoesPage() {
   }
 
   async function confirmDelete() {
-    if (toDelete) { await solicitacaoService.deletarSolicitacao(toDelete.id!); load() }
+    if (!toDelete) return
+    // registra antes: depois de apagar não sobra de quem era
+    await registrarEvento({
+      tabela: TABELA, registroId: toDelete.id!, acao: 'excluiu',
+      descricao: `Solicitação de ${toDelete.nome_completo} excluída`,
+      dados: { nome: toDelete.nome_completo, moto: toDelete.moto_nome, status: toDelete.status },
+    })
+    await solicitacaoService.deletarSolicitacao(toDelete.id!)
+    load()
   }
   async function confirmarPagamento() {
     if (!confirmingPayment) return
-    const valor = Number(valorPago.replace(',', '.'))
+    const valor = moedaParaNumero(valorPago)
     if (!valor || valor <= 0) return
     const ok = await solicitacaoService.confirmarPagamento(confirmingPayment.id!, valor)
     if (ok) {
+      void registrarEvento({
+        tabela: TABELA, registroId: confirmingPayment.id!, acao: 'confirmou_pagamento',
+        descricao: `Pagamento de ${formatCurrency(valor)} confirmado manualmente`,
+        dados: { valor },
+      })
       void sendWhatsAppNotification('template_pagamento_confirmado', confirmingPayment.telefone,
-        waParams(confirmingPayment, { valor_total: formatCurrency(valor) }))
+        waParams(confirmingPayment, { valor_total: formatCurrency(valor) }),
+        { solicitacaoId: confirmingPayment.id })
     }
     setConfirmingPayment(null); setValorPago(''); load()
   }
@@ -207,6 +254,8 @@ export default function SolicitacoesPage() {
           </div>
         </div>
 
+        <AvisoFalhasWhatsApp />
+
         {loading ? (
           <div className="flex justify-center py-20"><Spinner /></div>
         ) : filtered.length === 0 ? (
@@ -267,7 +316,7 @@ export default function SolicitacoesPage() {
                           <Button variant="outline" disabled={processando === s.id}
                             onClick={() => {
                               setCobrando(s)
-                              setValorCobranca(s.valor_total ? String(s.valor_total) : '')
+                              setValorCobranca(valorParaCampo(s.valor_total))
                               setCpfCobranca(maskCpf(s.cpf ?? ''))
                             }}
                             className="!py-1.5 !px-3 text-xs">
@@ -278,7 +327,7 @@ export default function SolicitacoesPage() {
                           </Button>
                         )}
                         <Button variant="outline"
-                          onClick={() => { setConfirmingPayment(s); setValorPago(s.valor_total ? String(s.valor_total) : '') }}
+                          onClick={() => { setConfirmingPayment(s); setValorPago(valorParaCampo(s.valor_total)) }}
                           className="!py-1.5 !px-3 text-xs"><Wallet size={14} /> Confirmar Pagamento</Button>
                       </>
                     )}
@@ -309,6 +358,13 @@ export default function SolicitacoesPage() {
                 <span className="text-white text-right">{v}</span>
               </div>
             ))}
+            <div className="pt-4 mt-2 border-t border-white/10">
+              <h4 className="text-white font-bold text-sm mb-3 flex items-center gap-2">
+                <History size={15} style={{ color: '#39FF14' }} /> Histórico
+              </h4>
+              {detail.id && <HistoricoSolicitacao solicitacaoId={detail.id} />}
+            </div>
+
             {detail.status === 'pendente' && (
               <div className="flex gap-3 pt-2">
                 <Button variant="primary" onClick={() => aprovar(detail)} className="flex-1"><Check size={16} /> Aprovar</Button>
@@ -330,10 +386,12 @@ export default function SolicitacoesPage() {
 
       {/* Confirmar Pagamento */}
       <Modal open={!!confirmingPayment} onClose={() => setConfirmingPayment(null)} title="Confirmar Pagamento" maxWidth="max-w-md">
-        <Input label="Valor recebido (R$)" type="number" step="0.01" min="0" value={valorPago} onChange={setValorPago} placeholder="0,00" required />
+        <Input label="Valor recebido (R$)" inputMode="decimal" value={valorPago}
+          onChange={(v) => setValorPago(maskMoeda(v))} placeholder="0,00" required />
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="outline" onClick={() => setConfirmingPayment(null)}>Cancelar</Button>
-          <Button variant="primary" onClick={confirmarPagamento} disabled={!valorPago || Number(valorPago.replace(',', '.')) <= 0}>Confirmar</Button>
+          <Button variant="primary" onClick={confirmarPagamento}
+            disabled={moedaParaNumero(valorPago) <= 0}>Confirmar</Button>
         </div>
       </Modal>
 
@@ -343,8 +401,8 @@ export default function SolicitacoesPage() {
           <span className="text-white font-semibold">{cobrando?.nome_completo}</span> e envia o link
           por WhatsApp. O cliente escolhe entre PIX, cartão ou boleto na própria página da Pagar.me.
         </p>
-        <Input label="Valor total (R$)" type="number" step="0.01" min="0" value={valorCobranca}
-          onChange={setValorCobranca} placeholder="0,00" required />
+        <Input label="Valor total (R$)" inputMode="decimal" value={valorCobranca}
+          onChange={(v) => setValorCobranca(maskMoeda(v))} placeholder="0,00" required />
         <div className="mt-4">
           <Input label="CPF do cliente" value={cpfCobranca}
             onChange={(v) => setCpfCobranca(maskCpf(v))} placeholder="000.000.000-00" required />
@@ -359,7 +417,7 @@ export default function SolicitacoesPage() {
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="outline" onClick={() => setCobrando(null)}>Cancelar</Button>
           <Button variant="primary" onClick={gerarCobranca}
-            disabled={!valorCobranca || Number(valorCobranca.replace(',', '.')) <= 0
+            disabled={moedaParaNumero(valorCobranca) <= 0
               || !cpfValido(cpfCobranca) || processando === cobrando?.id}>
             {processando === cobrando?.id ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
             Gerar e enviar

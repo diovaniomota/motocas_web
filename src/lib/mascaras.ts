@@ -53,3 +53,21 @@ export function cpfValido(v: string): boolean {
   return true
 }
 export const telefoneValido = (v: string) => [10, 11].includes(digitos(v).length)
+
+/** Máscara de dinheiro: digita-se só números e eles entram pela direita,
+ *  em centavos. "15000" vira "150,00" e "1500000" vira "15.000,00".
+ *  Evita o input type="number", que aceita "1e5", "-3" e ponto como decimal. */
+export function maskMoeda(v: string): string {
+  const centavos = digitos(v).replace(/^0+/, '')
+  if (!centavos) return ''
+  return (Number(centavos) / 100).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+/** Converte o texto mascarado de volta para número. "15.000,00" → 15000 */
+export function moedaParaNumero(v: string): number {
+  const centavos = digitos(v)
+  return centavos ? Number(centavos) / 100 : 0
+}
