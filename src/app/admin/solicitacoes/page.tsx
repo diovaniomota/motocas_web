@@ -10,6 +10,7 @@ import { solicitacaoService, authService } from '@/lib/services'
 import { exportToCSV } from '@/lib/csv'
 import { sendWhatsAppNotification } from '@/lib/whatsapp'
 import { gerarContrato, linkDeAssinatura, criarLinkPagamento } from '@/lib/edge-functions'
+import { maskCpf, digitos, cpfValido } from '@/lib/mascaras'
 import type { SolicitacaoAluguel } from '@/types'
 import { SOLICITACAO_STATUS } from '@/types'
 import {
@@ -42,6 +43,7 @@ export default function SolicitacoesPage() {
   const [processando, setProcessando] = useState<number | null>(null)
   const [cobrando, setCobrando] = useState<SolicitacaoAluguel | null>(null)
   const [valorCobranca, setValorCobranca] = useState('')
+  const [cpfCobranca, setCpfCobranca] = useState('')
   const [copiado, setCopiado] = useState<number | null>(null)
 
   useEffect(() => { load() }, [])
@@ -88,16 +90,23 @@ export default function SolicitacoesPage() {
     if (!cobrando) return
     const valor = Number(valorCobranca.replace(',', '.'))
     if (!valor || valor <= 0) { alert('Informe um valor válido.'); return }
+    if (!cpfValido(cpfCobranca)) { alert('Informe um CPF com 11 dígitos.'); return }
 
+    const cpf = digitos(cpfCobranca)
     setProcessando(cobrando.id!)
     try {
+      // corrige de vez no cadastro: solicitações antigas guardam CPF com lixo
+      if (cpf !== (cobrando.cpf ?? '')) {
+        await solicitacaoService.atualizarStatus(cobrando.id!, { cpf })
+      }
+
       const { checkoutUrl, paymentLinkId } = await criarLinkPagamento({
         solicitacaoId: cobrando.id!,
         valor,
         descricao: `Aluguel ${cobrando.moto_nome}`,
         cliente: {
           nome: cobrando.nome_completo, email: cobrando.email,
-          telefone: cobrando.telefone, cpf: cobrando.cpf ?? '',
+          telefone: cobrando.telefone, cpf,
         },
       })
       await solicitacaoService.salvarLinkPagamento(cobrando.id!, checkoutUrl, paymentLinkId, valor)
@@ -256,7 +265,11 @@ export default function SolicitacoesPage() {
                           </Button>
                         ) : (
                           <Button variant="outline" disabled={processando === s.id}
-                            onClick={() => { setCobrando(s); setValorCobranca(s.valor_total ? String(s.valor_total) : '') }}
+                            onClick={() => {
+                              setCobrando(s)
+                              setValorCobranca(s.valor_total ? String(s.valor_total) : '')
+                              setCpfCobranca(maskCpf(s.cpf ?? ''))
+                            }}
                             className="!py-1.5 !px-3 text-xs">
                             {processando === s.id
                               ? <Loader2 size={14} className="animate-spin" />
@@ -332,16 +345,22 @@ export default function SolicitacoesPage() {
         </p>
         <Input label="Valor total (R$)" type="number" step="0.01" min="0" value={valorCobranca}
           onChange={setValorCobranca} placeholder="0,00" required />
-        {!cobrando?.cpf && (
-          <p className="text-amber-300 text-xs mt-3 bg-amber-500/10 px-3 py-2 rounded-lg">
-            Esta solicitação não tem CPF preenchido — a Pagar.me exige o documento do cliente e vai
-            recusar a cobrança.
-          </p>
-        )}
+        <div className="mt-4">
+          <Input label="CPF do cliente" value={cpfCobranca}
+            onChange={(v) => setCpfCobranca(maskCpf(v))} placeholder="000.000.000-00" required />
+          {!cpfValido(cpfCobranca) && (
+            <p className="text-amber-300 text-xs mt-2 bg-amber-500/10 px-3 py-2 rounded-lg">
+              {cobrando?.cpf
+                ? 'O CPF gravado nesta solicitação está inválido — ela foi criada antes de existir máscara no formulário. Corrija aqui e o cadastro é atualizado junto.'
+                : 'Esta solicitação não tem CPF. A Pagar.me exige o documento do cliente.'}
+            </p>
+          )}
+        </div>
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="outline" onClick={() => setCobrando(null)}>Cancelar</Button>
           <Button variant="primary" onClick={gerarCobranca}
-            disabled={!valorCobranca || Number(valorCobranca.replace(',', '.')) <= 0 || processando === cobrando?.id}>
+            disabled={!valorCobranca || Number(valorCobranca.replace(',', '.')) <= 0
+              || !cpfValido(cpfCobranca) || processando === cobrando?.id}>
             {processando === cobrando?.id ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
             Gerar e enviar
           </Button>

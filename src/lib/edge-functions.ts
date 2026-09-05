@@ -95,6 +95,16 @@ function telefonePagarme(bruto: string) {
 
 /** Cria um link de checkout da Pagar.me (PIX, cartão ou boleto na mesma página). */
 export function criarLinkPagamento(d: DadosCobranca) {
+  // A Pagar.me recusa document com mais de 16 caracteres e devolve um 400 pouco
+  // óbvio. Solicitações anteriores às máscaras têm CPF com lixo, então barramos
+  // aqui com uma mensagem que diz o que fazer.
+  const cpf = d.cliente.cpf.replace(/\D/g, '')
+  if (cpf.length !== 11) {
+    throw new Error(
+      `CPF inválido (${cpf.length} dígitos, esperado 11). Corrija o CPF antes de gerar a cobrança.`,
+    )
+  }
+
   return chamar<RespostaLink>('pagarme-create-payment', {
     metodo: 'checkout_link',
     valor: d.valor,
@@ -104,7 +114,7 @@ export function criarLinkPagamento(d: DadosCobranca) {
     dadosCliente: {
       name: d.cliente.nome,
       email: d.cliente.email,
-      document: d.cliente.cpf.replace(/\D/g, ''),
+      document: cpf,
       document_type: 'CPF',
       type: 'individual',
       phones: { mobile_phone: telefonePagarme(d.cliente.telefone) },

@@ -5,42 +5,11 @@ import { X, Loader2, CheckCircle2 } from 'lucide-react'
 import { solicitacaoService } from '@/lib/services'
 import { sendWhatsAppNotification } from '@/lib/whatsapp'
 import { formatDate } from '@/components/ui'
+import { digitos, maskCpf, maskPhone, maskCep, maskCnh, maskUf } from '@/lib/mascaras'
 import type { Moto } from '@/types'
 
 const G = '#39FF14'
 
-/* ── Máscaras ──
-   Guardamos no formulário o valor formatado (o usuário vê a máscara), mas
-   gravamos só os dígitos no banco, mantendo o formato dos registros antigos
-   e evitando lixo digitado — foi um apóstrofo colado no telefone que já
-   quebrou um envio de WhatsApp. */
-const digits = (v: string) => v.replace(/\D/g, '')
-
-function maskCpf(v: string): string {
-  const d = digits(v).slice(0, 11)
-  if (d.length <= 3) return d
-  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`
-  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`
-  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`
-}
-
-function maskPhone(v: string): string {
-  const d = digits(v).slice(0, 11)
-  if (!d) return ''
-  if (d.length <= 2) return `(${d}`
-  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
-  // 10 dígitos = fixo (4+4), 11 = celular (5+4)
-  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
-  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
-}
-
-function maskCep(v: string): string {
-  const d = digits(v).slice(0, 8)
-  return d.length <= 5 ? d : `${d.slice(0, 5)}-${d.slice(5)}`
-}
-
-const maskCnh = (v: string) => digits(v).slice(0, 11)
-const maskUf = (v: string) => v.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2)
 
 export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClose: () => void }) {
   const [saving, setSaving] = useState(false)
@@ -61,19 +30,19 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
     setError('')
 
     // um telefone incompleto significa cliente sem nenhuma notificação de WhatsApp
-    const tel = digits(f.telefone)
+    const tel = digitos(f.telefone)
     if (tel.length < 10 || tel.length > 11) { setError('Telefone incompleto. Informe DDD + número.'); return }
-    if (digits(f.cpf).length !== 11) { setError('CPF incompleto.'); return }
-    if (digits(f.cep).length !== 8) { setError('CEP incompleto.'); return }
+    if (digitos(f.cpf).length !== 11) { setError('CPF incompleto.'); return }
+    if (digitos(f.cep).length !== 8) { setError('CEP incompleto.'); return }
 
     setSaving(true)
     try {
       const res = await solicitacaoService.criarSolicitacao({
         moto_nome: moto.nomemoto || `Moto #${moto.id}`, moto_id: moto.id,
         nome_completo: f.nome, telefone: tel, email: f.email,
-        cnh: digits(f.cnh), validade_cnh: f.validade_cnh || null, cpf: digits(f.cpf),
+        cnh: digitos(f.cnh), validade_cnh: f.validade_cnh || null, cpf: digitos(f.cpf),
         profissao: f.profissao, estado_civil: f.estado_civil,
-        cep: digits(f.cep), rua: f.rua, numero: f.numero, bairro: f.bairro, complemento: f.complemento,
+        cep: digitos(f.cep), rua: f.rua, numero: f.numero, bairro: f.bairro, complemento: f.complemento,
         cidade: f.cidade, estado: f.estado,
         data_retirada: f.data_retirada, data_devolucao: f.data_devolucao,
         observacoes: f.observacoes, status: 'pendente',
