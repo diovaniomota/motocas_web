@@ -6,6 +6,7 @@ import { pecaService } from '@/lib/services'
 import type { Peca } from '@/types'
 import { CATEGORIAS_PECA } from '@/types'
 import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
+import Fundo3D from '@/components/public/Fundo3D'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { PecaCard, SectionHeader } from '@/components/public/PublicCards'
@@ -31,8 +32,9 @@ export default function PecasAcessoriosPage() {
   return (
     <div className="bg-black min-h-screen text-white">
       <PublicNavbar />
-      <section className="py-16 px-6" style={{ background: 'linear-gradient(135deg, #030303, #0A1209, #050505)' }}>
-        <div className="max-w-[1320px] mx-auto">
+      <section className="relative overflow-hidden py-16 px-6" style={{ background: 'linear-gradient(135deg, #030303, #0A1209, #050505)' }}>
+        <Fundo3D intensidade={0.7} />
+        <div className="relative z-10 max-w-[1320px] mx-auto">
           <SectionHeader eyebrow="Loja MOTOCAS" title="Peças e acessórios" subtitle="Encontre capacetes, peças de motor, óleos e muito mais com compra rápida." />
         </div>
       </section>

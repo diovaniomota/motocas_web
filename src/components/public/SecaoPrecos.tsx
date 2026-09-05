@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { Tag } from 'lucide-react'
 import { carregarPrecos, formatarPreco } from '@/lib/precos'
 import { linkWhatsApp } from './BotaoWhatsApp'
+import Fundo3D from './Fundo3D'
 import type { TipoAluguel } from '@/types'
 
 const G = '#39FF14'
@@ -26,8 +27,9 @@ export default function SecaoPrecos() {
   if (tipos.length === 0) return null
 
   return (
-    <section id="precos" className="py-20 px-6" style={{ backgroundColor: '#0E0E0E' }}>
-      <div className="max-w-[1320px] mx-auto">
+    <section id="precos" className="relative overflow-hidden py-20 px-6" style={{ backgroundColor: '#0E0E0E' }}>
+      <Fundo3D intensidade={0.5} />
+      <div className="relative z-10 max-w-[1320px] mx-auto">
         <div className="flex items-center gap-2 mb-3">
           <Tag size={18} style={{ color: G }} />
           <span className="text-xs font-extrabold tracking-widest" style={{ color: G }}>PREÇOS</span>

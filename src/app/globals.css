@@ -53,3 +53,13 @@ body {
 .toast-enter {
   animation: toast-in 0.25s ease-out forwards;
 }
+
+/* entrada suave do fundo 3D: ele chega depois do conteúdo, e aparecer de
+   supetão atrás do texto fica pior do que não ter */
+@keyframes fundo3d-entrada {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.fundo3d-entrada {
+  animation: fundo3d-entrada 1.4s ease-out both;
+}

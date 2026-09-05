@@ -1,6 +1,7 @@
 'use client'
 
 import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
+import Fundo3D from '@/components/public/Fundo3D'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { SectionHeader } from '@/components/public/PublicCards'
@@ -11,8 +12,9 @@ export default function SobrePage() {
   return (
     <div className="bg-black min-h-screen text-white">
       <PublicNavbar />
-      <section className="py-20 px-6" style={{ backgroundColor: '#0E0E0E' }}>
-        <div className="max-w-[1320px] mx-auto">
+      <section className="relative overflow-hidden py-20 px-6" style={{ backgroundColor: '#0E0E0E' }}>
+        <Fundo3D intensidade={0.6} />
+        <div className="relative z-10 max-w-[1320px] mx-auto">
           <SectionHeader eyebrow="Essência da marca" title="Uma operação com cara de marca, não só de sistema" subtitle="A proposta da MOTOCAS é unir mobilidade, atendimento e conveniência em uma experiência mais organizada e mais confiável para o cliente." />
           <div className="mt-9 p-8 rounded-3xl border border-white/8 bg-[#171717] max-w-3xl mx-auto">
             <p className="text-white/70 text-lg leading-loose text-center">

@@ -1,6 +1,7 @@
 'use client'
 
 import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
+import Fundo3D from '@/components/public/Fundo3D'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { SectionHeader } from '@/components/public/PublicCards'
@@ -12,8 +13,9 @@ export default function CarreirasPage() {
   return (
     <div className="bg-black min-h-screen text-white">
       <PublicNavbar />
-      <section className="py-20 px-6 bg-black">
-        <div className="max-w-[1320px] mx-auto">
+      <section className="relative overflow-hidden py-20 px-6 bg-black">
+        <Fundo3D intensidade={0.6} />
+        <div className="relative z-10 max-w-[1320px] mx-auto">
           <SectionHeader eyebrow="Time MOTOCAS" title="Trabalhe com uma marca que quer crescer com mais presença" subtitle="Se você curte operação, atendimento, motos e gosta de construir algo bem feito, esse é um bom lugar para conversar." />
           <div className="mt-10 max-w-[760px] mx-auto p-9 rounded-3xl border text-center" style={{ background: 'linear-gradient(135deg, #171717, #202020)', borderColor: G + '38' }}>
             <p className="text-white text-lg leading-loose mb-7">

@@ -5,6 +5,7 @@ import { Bike } from 'lucide-react'
 import { motoService } from '@/lib/services'
 import type { Moto } from '@/types'
 import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
+import Fundo3D from '@/components/public/Fundo3D'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { MotoCard, SectionHeader } from '@/components/public/PublicCards'
@@ -22,8 +23,9 @@ export default function AluguelPage() {
   return (
     <div className="bg-black min-h-screen text-white">
       <PublicNavbar />
-      <section className="py-16 px-6" style={{ background: 'linear-gradient(135deg, #030303, #0A1209, #050505)' }}>
-        <div className="max-w-[1320px] mx-auto">
+      <section className="relative overflow-hidden py-16 px-6" style={{ background: 'linear-gradient(135deg, #030303, #0A1209, #050505)' }}>
+        <Fundo3D intensidade={0.7} />
+        <div className="relative z-10 max-w-[1320px] mx-auto">
           <SectionHeader eyebrow="Frota completa" title="Motos disponíveis para aluguel" subtitle="Escolha o modelo ideal e solicite o aluguel em poucos cliques." />
         </div>
       </section>
