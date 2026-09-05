@@ -152,6 +152,15 @@ export const CHECKLIST_ITENS = [
   { key: 'suporte_celular', label: 'Suporte Celular' },
 ] as const
 
+/** Tabela de preços da locação (tabela `alugueis`).
+ *  Já vinha cadastrada — Diária, Fim de Semana, Semanal, Mensal — e nenhuma
+ *  tela usava, então todo valor era digitado à mão. Colunas são TEXT no banco. */
+export interface TipoAluguel {
+  id: string
+  tipo_aluguel: string
+  valor_aluguel: string
+}
+
 export interface Peca {
   id: number
   nome: string

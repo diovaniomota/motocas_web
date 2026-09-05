@@ -15,6 +15,7 @@ import { registrarEvento } from '@/lib/eventos'
 import HistoricoSolicitacao from '@/components/admin/HistoricoSolicitacao'
 import AvisoFalhasWhatsApp from '@/components/admin/AvisoFalhasWhatsApp'
 import VistoriaForm, { vistoriaVazia } from '@/components/admin/VistoriaForm'
+import SeletorPreco from '@/components/admin/SeletorPreco'
 import { entregarMoto, type DadosVistoria } from '@/lib/entrega'
 import type { SolicitacaoAluguel } from '@/types'
 import { SOLICITACAO_STATUS } from '@/types'
@@ -424,6 +425,8 @@ export default function SolicitacoesPage() {
       <Modal open={!!confirmingPayment} onClose={() => setConfirmingPayment(null)} title="Confirmar Pagamento" maxWidth="max-w-md">
         <Input label="Valor recebido (R$)" inputMode="decimal" value={valorPago}
           onChange={(v) => setValorPago(maskMoeda(v))} placeholder="0,00" required />
+        <SeletorPreco valorAtual={moedaParaNumero(valorPago)}
+          onEscolher={(valor) => setValorPago(maskMoeda(String(Math.round(valor * 100))))} />
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="outline" onClick={() => setConfirmingPayment(null)}>Cancelar</Button>
           <Button variant="primary" onClick={confirmarPagamento}
@@ -439,6 +442,8 @@ export default function SolicitacoesPage() {
         </p>
         <Input label="Valor total (R$)" inputMode="decimal" value={valorCobranca}
           onChange={(v) => setValorCobranca(maskMoeda(v))} placeholder="0,00" required />
+        <SeletorPreco valorAtual={moedaParaNumero(valorCobranca)}
+          onEscolher={(valor) => setValorCobranca(maskMoeda(String(Math.round(valor * 100))))} />
         <div className="mt-4">
           <Input label="CPF do cliente" value={cpfCobranca}
             onChange={(v) => setCpfCobranca(maskCpf(v))} placeholder="000.000.000-00" required />

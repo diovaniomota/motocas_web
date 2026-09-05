@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 import type {
   Moto, Cliente, Locacao, Manutencao, Infracao, Checklist,
   Peca, PedidoPeca, SolicitacaoAluguel, Notificacao,
+  TipoAluguel,
 } from '@/types'
 
 /* ───────────── MOTOS ───────────── */
@@ -69,6 +70,29 @@ export const clienteService = {
   },
   async deleteCliente(id: number): Promise<boolean> {
     const { error } = await supabase.from('clientes').delete().eq('id', id)
+    return !error
+  },
+}
+
+/* ───────────── TABELA DE PREÇOS ───────────── */
+export const precoService = {
+  async getTipos(): Promise<TipoAluguel[]> {
+    const { data } = await supabase.from('alugueis').select('*')
+    // valor é TEXT no banco; ordena por número para "Diária" não vir depois de "Mensal"
+    return (data || []).sort((a, b) => Number(a.valor_aluguel || 0) - Number(b.valor_aluguel || 0))
+  },
+  async salvarTipo(t: Partial<TipoAluguel>): Promise<boolean> {
+    if (t.id) {
+      const { error } = await supabase.from('alugueis')
+        .update({ tipo_aluguel: t.tipo_aluguel, valor_aluguel: t.valor_aluguel }).eq('id', t.id)
+      return !error
+    }
+    const { error } = await supabase.from('alugueis')
+      .insert({ tipo_aluguel: t.tipo_aluguel, valor_aluguel: t.valor_aluguel })
+    return !error
+  },
+  async removerTipo(id: string): Promise<boolean> {
+    const { error } = await supabase.from('alugueis').delete().eq('id', id)
     return !error
   },
 }
