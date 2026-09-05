@@ -14,6 +14,8 @@ import { maskCpf, digitos, cpfValido, maskMoeda, moedaParaNumero } from '@/lib/m
 import { registrarEvento } from '@/lib/eventos'
 import HistoricoSolicitacao from '@/components/admin/HistoricoSolicitacao'
 import AvisoFalhasWhatsApp from '@/components/admin/AvisoFalhasWhatsApp'
+import VistoriaForm, { vistoriaVazia } from '@/components/admin/VistoriaForm'
+import { entregarMoto, type DadosVistoria } from '@/lib/entrega'
 import type { SolicitacaoAluguel } from '@/types'
 import { SOLICITACAO_STATUS } from '@/types'
 import {
@@ -55,6 +57,9 @@ export default function SolicitacoesPage() {
   const [valorCobranca, setValorCobranca] = useState('')
   const [cpfCobranca, setCpfCobranca] = useState('')
   const [copiado, setCopiado] = useState<number | null>(null)
+  const [entregando, setEntregando] = useState<SolicitacaoAluguel | null>(null)
+  const [vistoria, setVistoria] = useState<DadosVistoria>(vistoriaVazia())
+  const [salvandoEntrega, setSalvandoEntrega] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -151,6 +156,32 @@ export default function SolicitacoesPage() {
       alert(`Não foi possível gerar a cobrança: ${e instanceof Error ? e.message : e}`)
     } finally {
       setProcessando(null)
+    }
+  }
+
+  async function abrirEntrega(s: SolicitacaoAluguel) {
+    const user = await authService.getCurrentUser()
+    setVistoria(vistoriaVazia(user?.email || ''))
+    setEntregando(s)
+  }
+
+  /* Cria a locação a partir da solicitação e registra a vistoria de entrada.
+     É o elo que faltava: sem isso o ciclo terminava no pagamento. */
+  async function confirmarEntrega() {
+    if (!entregando) return
+    if (!vistoria.km || vistoria.km <= 0) { alert('Informe a quilometragem da moto.'); return }
+    if (!vistoria.responsavel.trim()) { alert('Informe quem está fazendo a vistoria.'); return }
+
+    setSalvandoEntrega(true)
+    try {
+      const { locacao } = await entregarMoto(entregando, vistoria)
+      setEntregando(null)
+      await load()
+      alert(`Locação #${locacao.id} criada. A moto consta como entregue.`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Não foi possível registrar a entrega.')
+    } finally {
+      setSalvandoEntrega(false)
     }
   }
 
@@ -331,6 +362,11 @@ export default function SolicitacoesPage() {
                           className="!py-1.5 !px-3 text-xs"><Wallet size={14} /> Confirmar Pagamento</Button>
                       </>
                     )}
+                    {(s.status === 'aprovada' || s.status === 'gerar_contrato') && (
+                      <Button variant="primary" onClick={() => abrirEntrega(s)} className="!py-1.5 !px-3 text-xs">
+                        <Bike size={14} /> Entregar moto
+                      </Button>
+                    )}
                     <Button variant="ghost" onClick={() => setToDelete(s)} className="!py-1.5 !px-3 text-xs text-red-400"><Trash2 size={14} /> Excluir</Button>
                   </div>
                 </div>
@@ -423,6 +459,40 @@ export default function SolicitacoesPage() {
             Gerar e enviar
           </Button>
         </div>
+      </Modal>
+
+      <Modal open={!!entregando} onClose={() => !salvandoEntrega && setEntregando(null)}
+        title="Entregar moto" maxWidth="max-w-2xl">
+        {entregando && (
+          <div className="space-y-5">
+            <div className="rounded-xl bg-[#0a0a0a] border border-white/5 p-4 text-sm">
+              <p className="text-white font-semibold">{entregando.nome_completo}</p>
+              <p className="text-white/50 text-xs mt-0.5">
+                {entregando.moto_nome} · {formatDate(entregando.data_retirada)} → {formatDate(entregando.data_devolucao)}
+              </p>
+            </div>
+
+            {(!entregando.termo_aceito || !entregando.pagamento_pago) && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-xs text-amber-100/90">
+                Antes de entregar, confira:
+                {!entregando.termo_aceito && <div>• o contrato ainda não foi assinado pelo cliente</div>}
+                {!entregando.pagamento_pago && <div>• o pagamento ainda não consta como recebido</div>}
+              </div>
+            )}
+
+            <VistoriaForm dados={vistoria} onChange={setVistoria} />
+
+            <div className="flex justify-end gap-3 pt-1">
+              <Button variant="outline" onClick={() => setEntregando(null)} disabled={salvandoEntrega}>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={confirmarEntrega} disabled={salvandoEntrega}>
+                {salvandoEntrega ? <Loader2 size={16} className="animate-spin" /> : <Bike size={16} />}
+                Registrar entrega
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={confirmDelete}

@@ -24,9 +24,14 @@ export interface Cliente {
   telefone?: string | null
   email?: string | null
   endereco?: string | null
+  numero_endereco?: string | null
+  bairro?: string | null
   cidade?: string | null
   estado?: string | null
   cep?: string | null
+  celular?: string | null
+  cnpj?: string | null
+  atividade?: string | null
   data_nascimento?: string | null
   cnh?: string | null
   validade_cnh?: string | null
@@ -59,6 +64,9 @@ export interface Locacao {
   observacoes_finalizacao?: string | null
   checklist_entrada_id?: number | null
   checklist_saida_id?: number | null
+  /** solicitação que deu origem a esta locação, quando veio do fluxo do site */
+  origem_solicitacao_id?: number | null
+  origem?: string | null
   created_at?: string | null
   updated_at?: string | null
 }

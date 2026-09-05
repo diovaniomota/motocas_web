@@ -10,7 +10,21 @@ import { locacaoService, clienteService, motoService } from '@/lib/services'
 import { exportToCSV } from '@/lib/csv'
 import type { Locacao, Cliente, Moto } from '@/types'
 import { LOCACAO_STATUS } from '@/types'
-import { Plus, FileText, Trash2, CheckCircle2, XCircle, Download } from 'lucide-react'
+import { Plus, FileText, Trash2, XCircle, Download, Undo2, Loader2 } from 'lucide-react'
+import PainelDevolucoes from '@/components/admin/PainelDevolucoes'
+import VistoriaForm, { vistoriaVazia } from '@/components/admin/VistoriaForm'
+import { devolverMoto, calcularAcerto, motoOcupada, type DadosVistoria } from '@/lib/entrega'
+import { authService } from '@/lib/services'
+import { maskMoeda, moedaParaNumero } from '@/lib/mascaras'
+
+function Linha({ rotulo, valor }: { rotulo: string; valor: number }) {
+  return (
+    <div className="flex justify-between text-white/60">
+      <span>{rotulo}</span>
+      <span>{formatCurrency(valor)}</span>
+    </div>
+  )
+}
 
 export default function LocacoesPage() {
   const [locacoes, setLocacoes] = useState<Locacao[]>([])
@@ -23,6 +37,12 @@ export default function LocacoesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toDelete, setToDelete] = useState<Locacao | null>(null)
+  const [devolvendo, setDevolvendo] = useState<Locacao | null>(null)
+  const [vistoria, setVistoria] = useState<DadosVistoria>(vistoriaVazia())
+  const [dataRetorno, setDataRetorno] = useState('')
+  const [valorReparos, setValorReparos] = useState('')
+  const [salvandoDevolucao, setSalvandoDevolucao] = useState(false)
+  const [versao, setVersao] = useState(0)
   const [form, setForm] = useState({
     cliente_id: '', moto_id: '', data_inicio: '', data_fim: '',
     valor_diaria: '', valor_pago: '', forma_pagamento: 'pix', km_inicial: '', observacoes: '',
@@ -45,6 +65,18 @@ export default function LocacoesPage() {
 
   async function save() {
     if (!form.cliente_id || !form.moto_id || !form.data_inicio || !form.data_fim) return
+
+    // moto já locada no período: o problema só apareceria na hora da entrega,
+    // com o cliente na loja
+    const conflito = await motoOcupada(Number(form.moto_id), form.data_inicio, form.data_fim)
+    if (conflito) {
+      alert(
+        `Esta moto já tem locação ativa de ${formatDate(conflito.data_inicio)} a `
+        + `${formatDate(conflito.data_fim)}${conflito.cliente_nome ? ` (${conflito.cliente_nome})` : ''}.`,
+      )
+      return
+    }
+
     setSaving(true)
     const cliente = clientes.find((c) => c.id === Number(form.cliente_id))
     const moto = motos.find((m) => m.id === Number(form.moto_id))
@@ -63,9 +95,37 @@ export default function LocacoesPage() {
     setSaving(false); setModalOpen(false); load()
   }
 
-  async function finalizar(l: Locacao) {
-    await locacaoService.updateLocacao(l.id, { status: 'finalizada', data_retorno_real: new Date().toISOString().split('T')[0] })
-    load()
+  async function abrirDevolucao(l: Locacao) {
+    const user = await authService.getCurrentUser()
+    setVistoria({ ...vistoriaVazia(user?.email || ''), km: l.km_inicial ?? 0 })
+    setDataRetorno(new Date().toISOString().slice(0, 10))
+    setValorReparos('')
+    setDevolvendo(l)
+  }
+
+  /* Encerra com vistoria de saída e acerto. Antes isso era só um update de
+     status: nenhum km, nenhuma foto, nenhuma cobrança de atraso. */
+  async function confirmarDevolucao() {
+    if (!devolvendo) return
+    if (!vistoria.km || vistoria.km <= 0) { alert('Informe a quilometragem de devolução.'); return }
+    if (!vistoria.responsavel.trim()) { alert('Informe quem está fazendo a vistoria.'); return }
+
+    setSalvandoDevolucao(true)
+    try {
+      const acerto = await devolverMoto(devolvendo, {
+        ...vistoria, dataRetorno, valorReparos: moedaParaNumero(valorReparos),
+      })
+      setDevolvendo(null)
+      setVersao((v) => v + 1)
+      await load()
+      alert(acerto.totalExtra > 0
+        ? `Devolução registrada. Ficou ${formatCurrency(acerto.totalExtra)} a cobrar.`
+        : 'Devolução registrada sem pendências.')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Não foi possível registrar a devolução.')
+    } finally {
+      setSalvandoDevolucao(false)
+    }
   }
   async function cancelar(l: Locacao) {
     await locacaoService.updateLocacao(l.id, { status: 'cancelada' }); load()
@@ -102,6 +162,8 @@ export default function LocacoesPage() {
         action={<Button onClick={openNew}><Plus size={16} /> Nova Locação</Button>} />
 
       <main className="flex-1 p-6 space-y-5">
+        <PainelDevolucoes onDevolver={abrirDevolucao} recarregar={versao} />
+
         {/* Filtros status */}
         <div className="flex gap-2 flex-wrap">
           {['todas', 'ativa', 'atrasada', 'finalizada', 'cancelada'].map((f) => (
@@ -165,7 +227,7 @@ export default function LocacoesPage() {
                   <div className="flex gap-2 mt-4 pt-4 border-t border-white/5 flex-wrap">
                     {l.status === 'ativa' && (
                       <>
-                        <Button variant="outline" onClick={() => finalizar(l)} className="!py-1.5 !px-3 text-xs"><CheckCircle2 size={14} /> Finalizar</Button>
+                        <Button variant="outline" onClick={() => abrirDevolucao(l)} className="!py-1.5 !px-3 text-xs"><Undo2 size={14} /> Devolver moto</Button>
                         <Button variant="outline" onClick={() => cancelar(l)} className="!py-1.5 !px-3 text-xs"><XCircle size={14} /> Cancelar</Button>
                       </>
                     )}
@@ -197,6 +259,61 @@ export default function LocacoesPage() {
           <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
           <Button onClick={save} loading={saving}>Criar Locação</Button>
         </div>
+      </Modal>
+
+      <Modal open={!!devolvendo} onClose={() => !salvandoDevolucao && setDevolvendo(null)}
+        title="Devolver moto" maxWidth="max-w-2xl">
+        {devolvendo && (() => {
+          const acerto = calcularAcerto(devolvendo, dataRetorno, moedaParaNumero(valorReparos))
+          return (
+            <div className="space-y-5">
+              <div className="rounded-xl bg-[#0a0a0a] border border-white/5 p-4 text-sm">
+                <p className="text-white font-semibold">{devolvendo.cliente_nome || `Locação #${devolvendo.id}`}</p>
+                <p className="text-white/50 text-xs mt-0.5">
+                  {devolvendo.moto_nome} · previsto para {formatDate(devolvendo.data_fim)}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white/80 mb-1.5">Data da devolução</label>
+                <input type="date" value={dataRetorno} onChange={(e) => setDataRetorno(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-[#1a1a1a] border border-white/10 text-sm text-white focus:outline-none focus:border-[#39FF14]" />
+              </div>
+
+              <VistoriaForm dados={vistoria} onChange={setVistoria} kmAnterior={devolvendo.km_inicial} />
+
+              <div>
+                <label className="block text-sm font-medium text-white/80 mb-1.5">Reparos a cobrar (R$)</label>
+                <input inputMode="decimal" value={valorReparos}
+                  onChange={(e) => setValorReparos(maskMoeda(e.target.value))} placeholder="0,00"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#39FF14]" />
+                <p className="text-white/30 text-[11px] mt-1">Avarias apontadas na vistoria acima.</p>
+              </div>
+
+              {/* acerto calculado na hora, para o funcionário ver antes de confirmar */}
+              <div className="rounded-xl border border-white/10 bg-[#0a0a0a] p-4 space-y-1.5 text-sm">
+                <Linha rotulo={`Diárias de atraso (${acerto.diasAtraso})`} valor={acerto.valorAtraso} />
+                <Linha rotulo="Reparos" valor={acerto.valorReparos} />
+                <div className="border-t border-white/10 pt-1.5 flex justify-between">
+                  <span className="text-white font-semibold">Total a cobrar</span>
+                  <span className="font-bold" style={{ color: acerto.totalExtra > 0 ? '#F59E0B' : '#39FF14' }}>
+                    {formatCurrency(acerto.totalExtra)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setDevolvendo(null)} disabled={salvandoDevolucao}>
+                  Cancelar
+                </Button>
+                <Button variant="primary" onClick={confirmarDevolucao} disabled={salvandoDevolucao}>
+                  {salvandoDevolucao ? <Loader2 size={16} className="animate-spin" /> : <Undo2 size={16} />}
+                  Registrar devolução
+                </Button>
+              </div>
+            </div>
+          )
+        })()}
       </Modal>
 
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={confirmDelete}
