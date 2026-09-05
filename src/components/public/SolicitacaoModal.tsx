@@ -9,6 +9,39 @@ import type { Moto } from '@/types'
 
 const G = '#39FF14'
 
+/* ── Máscaras ──
+   Guardamos no formulário o valor formatado (o usuário vê a máscara), mas
+   gravamos só os dígitos no banco, mantendo o formato dos registros antigos
+   e evitando lixo digitado — foi um apóstrofo colado no telefone que já
+   quebrou um envio de WhatsApp. */
+const digits = (v: string) => v.replace(/\D/g, '')
+
+function maskCpf(v: string): string {
+  const d = digits(v).slice(0, 11)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`
+}
+
+function maskPhone(v: string): string {
+  const d = digits(v).slice(0, 11)
+  if (!d) return ''
+  if (d.length <= 2) return `(${d}`
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  // 10 dígitos = fixo (4+4), 11 = celular (5+4)
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+}
+
+function maskCep(v: string): string {
+  const d = digits(v).slice(0, 8)
+  return d.length <= 5 ? d : `${d.slice(0, 5)}-${d.slice(5)}`
+}
+
+const maskCnh = (v: string) => digits(v).slice(0, 11)
+const maskUf = (v: string) => v.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2)
+
 export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClose: () => void }) {
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
@@ -19,18 +52,28 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
     cidade: '', estado: '', data_retirada: '', data_devolucao: '', observacoes: '',
   })
 
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value })
+  const set = (k: keyof typeof f, mask?: (v: string) => string) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setF({ ...f, [k]: mask ? mask(e.target.value) : e.target.value })
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    setSaving(true); setError('')
+    setError('')
+
+    // um telefone incompleto significa cliente sem nenhuma notificação de WhatsApp
+    const tel = digits(f.telefone)
+    if (tel.length < 10 || tel.length > 11) { setError('Telefone incompleto. Informe DDD + número.'); return }
+    if (digits(f.cpf).length !== 11) { setError('CPF incompleto.'); return }
+    if (digits(f.cep).length !== 8) { setError('CEP incompleto.'); return }
+
+    setSaving(true)
     try {
       const res = await solicitacaoService.criarSolicitacao({
         moto_nome: moto.nomemoto || `Moto #${moto.id}`, moto_id: moto.id,
-        nome_completo: f.nome, telefone: f.telefone, email: f.email,
-        cnh: f.cnh, validade_cnh: f.validade_cnh || null, cpf: f.cpf,
+        nome_completo: f.nome, telefone: tel, email: f.email,
+        cnh: digits(f.cnh), validade_cnh: f.validade_cnh || null, cpf: digits(f.cpf),
         profissao: f.profissao, estado_civil: f.estado_civil,
-        cep: f.cep, rua: f.rua, numero: f.numero, bairro: f.bairro, complemento: f.complemento,
+        cep: digits(f.cep), rua: f.rua, numero: f.numero, bairro: f.bairro, complemento: f.complemento,
         cidade: f.cidade, estado: f.estado,
         data_retirada: f.data_retirada, data_devolucao: f.data_devolucao,
         observacoes: f.observacoes, status: 'pendente',
@@ -72,19 +115,19 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
           <form onSubmit={submit} className="overflow-y-auto p-6 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field className="sm:col-span-2" label="Nome completo *" value={f.nome} onChange={set('nome')} required />
-              <Field label="CNH *" value={f.cnh} onChange={set('cnh')} required />
+              <Field label="CNH *" value={f.cnh} onChange={set('cnh', maskCnh)} inputMode="numeric" placeholder="00000000000" required />
               <Field label="Validade CNH *" type="date" value={f.validade_cnh} onChange={set('validade_cnh')} required />
-              <Field label="CPF *" value={f.cpf} onChange={set('cpf')} required />
+              <Field label="CPF *" value={f.cpf} onChange={set('cpf', maskCpf)} inputMode="numeric" placeholder="000.000.000-00" required />
               <Field label="Profissão *" value={f.profissao} onChange={set('profissao')} required />
               <Field label="Estado civil *" value={f.estado_civil} onChange={set('estado_civil')} required />
-              <Field label="Telefone *" value={f.telefone} onChange={set('telefone')} required />
+              <Field label="Telefone *" value={f.telefone} onChange={set('telefone', maskPhone)} inputMode="tel" placeholder="(00) 00000-0000" required />
               <Field className="sm:col-span-2" label="Email *" type="email" value={f.email} onChange={set('email')} required />
-              <Field label="CEP *" value={f.cep} onChange={set('cep')} required />
+              <Field label="CEP *" value={f.cep} onChange={set('cep', maskCep)} inputMode="numeric" placeholder="00000-000" required />
               <Field label="Rua *" value={f.rua} onChange={set('rua')} required />
               <Field label="Número *" value={f.numero} onChange={set('numero')} required />
               <Field label="Bairro *" value={f.bairro} onChange={set('bairro')} required />
               <Field label="Cidade *" value={f.cidade} onChange={set('cidade')} required />
-              <Field label="UF *" value={f.estado} onChange={set('estado')} required />
+              <Field label="UF *" value={f.estado} onChange={set('estado', maskUf)} placeholder="SC" required />
               <Field className="sm:col-span-2" label="Complemento" value={f.complemento} onChange={set('complemento')} />
               <Field label="Data retirada *" type="date" value={f.data_retirada} onChange={set('data_retirada')} required />
               <Field label="Data devolução *" type="date" value={f.data_devolucao} onChange={set('data_devolucao')} required />
@@ -112,18 +155,21 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
   )
 }
 
-function Field({ label, value, onChange, type = 'text', required, className }: {
+function Field({ label, value, onChange, type = 'text', required, className, placeholder, inputMode }: {
   label: string
   value: string
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   type?: string
   required?: boolean
   className?: string
+  placeholder?: string
+  inputMode?: 'text' | 'numeric' | 'tel' | 'email'
 }) {
   return (
     <div className={className}>
       <label className="block text-sm font-medium text-white/80 mb-1.5">{label}</label>
       <input type={type} value={value} onChange={onChange} required={required}
+        placeholder={placeholder} inputMode={inputMode}
         className="w-full px-3.5 py-2.5 rounded-lg bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2"
         style={{ ['--tw-ring-color' as string]: '#39FF14' }} />
     </div>
