@@ -241,6 +241,11 @@ export interface SolicitacaoAluguel {
   termo_aceito?: boolean | null
   data_aceite_termo?: string | null
   termo_pdf_url?: string | null
+  /** PDF sem assinatura, gerado para o cliente ler */
+  contrato_pdf_url?: string | null
+  /** token do link de assinatura enviado por WhatsApp; zerado após assinar */
+  assinatura_token?: string | null
+  assinatura_token_expira?: string | null
   observacao_rejeicao?: string | null
   foto_cnh_url?: string | null
   foto_cliente_url?: string | null

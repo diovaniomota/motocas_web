@@ -283,6 +283,18 @@ export const solicitacaoService = {
       .eq('id', id)
     return !error
   },
+  async salvarLinkPagamento(id: number, link: string, pagarmeId: string, valorTotal: number): Promise<boolean> {
+    const { error } = await supabase.from('solicitacoes_aluguel')
+      .update({
+        link_pagamento: link,
+        pagarme_order_id: pagarmeId,
+        valor_total: valorTotal,
+        pagamento_liberado: true,
+        data_liberacao_pagamento: new Date().toISOString(),
+      })
+      .eq('id', id)
+    return !error
+  },
   async confirmarPagamento(id: number, valorTotal: number): Promise<boolean> {
     const { error } = await supabase.from('solicitacoes_aluguel')
       .update({ pagamento_pago: true, data_pagamento: new Date().toISOString(), valor_total: valorTotal })

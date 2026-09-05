@@ -81,6 +81,7 @@ export default function WhatsAppPage() {
     template_solicitacao_rejeitada: '',
     template_contrato_gerado: '',
     template_pagamento_confirmado: '',
+    template_link_pagamento: '',
   })
 
   const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -249,7 +250,8 @@ export default function WhatsAppPage() {
         'template_solicitacao_aprovada',
         'template_solicitacao_rejeitada',
         'template_contrato_gerado',
-        'template_pagamento_confirmado'
+        'template_pagamento_confirmado',
+        'template_link_pagamento'
       ]
       const { data, error } = await supabase
         .from('app_settings')
@@ -278,6 +280,7 @@ export default function WhatsAppPage() {
           template_solicitacao_rejeitada: map.template_solicitacao_rejeitada ?? '',
           template_contrato_gerado: map.template_contrato_gerado ?? '',
           template_pagamento_confirmado: map.template_pagamento_confirmado ?? '',
+          template_link_pagamento: map.template_link_pagamento ?? '',
         })
       }
     } catch (e: any) {
@@ -626,10 +629,10 @@ export default function WhatsAppPage() {
                   {/* Template 4: Contrato Gerado */}
                   <TemplateCard
                     title="4. Contrato Gerado"
-                    description="Enviada ao cliente assim que o contrato PDF da locação é assinado ou disponibilizado."
+                    description="Enviada quando o admin gera o contrato. Use {{link_contrato}} — é o link onde o cliente lê e assina."
                     value={settings.template_contrato_gerado}
                     onChange={(val) => setSettings(prev => ({ ...prev, template_contrato_gerado: val }))}
-                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao']}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao', 'link_contrato']}
                     onPlaceholderClick={(p) => appendPlaceholder('template_contrato_gerado', p)}
                   />
 
@@ -641,6 +644,16 @@ export default function WhatsAppPage() {
                     onChange={(val) => setSettings(prev => ({ ...prev, template_pagamento_confirmado: val }))}
                     placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao', 'valor_total']}
                     onPlaceholderClick={(p) => appendPlaceholder('template_pagamento_confirmado', p)}
+                  />
+
+                  {/* Template 6: Link de Pagamento */}
+                  <TemplateCard
+                    title="6. Link de Pagamento"
+                    description="Enviada quando o admin gera a cobrança na Pagar.me. Use {{link_pagamento}} — é onde o cliente paga."
+                    value={settings.template_link_pagamento}
+                    onChange={(val) => setSettings(prev => ({ ...prev, template_link_pagamento: val }))}
+                    placeholders={['nome', 'moto', 'data_retirada', 'data_devolucao', 'valor_total', 'link_pagamento']}
+                    onPlaceholderClick={(p) => appendPlaceholder('template_link_pagamento', p)}
                   />
 
                 </div>

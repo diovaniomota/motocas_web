@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 import {
   LogOut, Mail, ListChecks, ShoppingCart, ReceiptText,
   PlusCircle, ClipboardList, Search, CheckCircle2,
-  ShoppingBag, Calendar, DollarSign, Package,
+  ShoppingBag, Calendar, DollarSign, Package, FileText,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -21,6 +21,10 @@ interface Solicitacao {
   valor_total?: number
   pagamento_pago?: boolean
   pagamento_liberado?: boolean
+  link_pagamento?: string | null
+  contrato_pdf_url?: string | null
+  termo_pdf_url?: string | null
+  termo_aceito?: boolean | null
   created_at: string
   motos?: { nomemoto: string; placamoto: string }
 }
@@ -341,6 +345,25 @@ function PagamentoCard({ sol }: { sol: Solicitacao }) {
           <p className="text-3xl font-extrabold mt-2" style={{ color: G }}>
             R$ {sol.valor_total.toFixed(2).replace('.', ',')}
           </p>
+        )}
+
+        {sol.link_pagamento ? (
+          <a href={sol.link_pagamento} target="_blank" rel="noopener noreferrer"
+            className="mt-4 w-full py-3 rounded-xl font-bold text-black text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: G }}>
+            <DollarSign size={16} /> Pagar agora
+          </a>
+        ) : (
+          <p className="mt-3 text-white/50 text-xs">
+            Aguardando a Motocas gerar o link de pagamento. Você receberá por WhatsApp.
+          </p>
+        )}
+
+        {(sol.termo_pdf_url || sol.contrato_pdf_url) && (
+          <a href={sol.termo_pdf_url || sol.contrato_pdf_url || '#'} target="_blank" rel="noopener noreferrer"
+            className="mt-2 w-full py-2.5 rounded-xl font-semibold text-white text-xs flex items-center justify-center gap-2 border border-white/20 hover:bg-white/5 transition-colors">
+            <FileText size={14} /> {sol.termo_aceito ? 'Ver contrato assinado' : 'Ver contrato'}
+          </a>
         )}
       </div>
     </div>

@@ -7,6 +7,7 @@ export type WaTemplateKey =
   | 'template_solicitacao_rejeitada'
   | 'template_contrato_gerado'
   | 'template_pagamento_confirmado'
+  | 'template_link_pagamento'
 
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, '')

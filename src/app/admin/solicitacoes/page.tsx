@@ -9,9 +9,13 @@ import {
 import { solicitacaoService, authService } from '@/lib/services'
 import { exportToCSV } from '@/lib/csv'
 import { sendWhatsAppNotification } from '@/lib/whatsapp'
+import { gerarContrato, linkDeAssinatura, criarLinkPagamento } from '@/lib/edge-functions'
 import type { SolicitacaoAluguel } from '@/types'
 import { SOLICITACAO_STATUS } from '@/types'
-import { Mail, Phone, Bike, Calendar, Check, X, Trash2, User, Download, FileSignature, Wallet } from 'lucide-react'
+import {
+  Mail, Phone, Bike, Calendar, Check, X, Trash2, User, Download, FileSignature, Wallet,
+  Loader2, FileText, Link2, Copy,
+} from 'lucide-react'
 
 function waParams(s: SolicitacaoAluguel, extra?: Record<string, string>) {
   return {
@@ -35,6 +39,10 @@ export default function SolicitacoesPage() {
   const [toDelete, setToDelete] = useState<SolicitacaoAluguel | null>(null)
   const [confirmingPayment, setConfirmingPayment] = useState<SolicitacaoAluguel | null>(null)
   const [valorPago, setValorPago] = useState('')
+  const [processando, setProcessando] = useState<number | null>(null)
+  const [cobrando, setCobrando] = useState<SolicitacaoAluguel | null>(null)
+  const [valorCobranca, setValorCobranca] = useState('')
+  const [copiado, setCopiado] = useState<number | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -59,13 +67,60 @@ export default function SolicitacoesPage() {
     }
     setRejecting(null); setMotivo(''); setDetail(null); load()
   }
+  /* Gera o PDF preenchido, cria o token de assinatura e manda o link por WhatsApp.
+     O cliente assina em /assinar?token=... sem precisar de conta. */
+  async function gerarEEnviarContrato(s: SolicitacaoAluguel) {
+    setProcessando(s.id!)
+    try {
+      const { token } = await gerarContrato(s.id!)
+      void sendWhatsAppNotification('template_contrato_gerado', s.telefone,
+        waParams(s, { link_contrato: linkDeAssinatura(token) }))
+      await load()
+    } catch (e) {
+      alert(`Não foi possível gerar o contrato: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setProcessando(null)
+    }
+  }
+
+  /* Cria o link de checkout na Pagar.me (PIX, cartão ou boleto) e envia ao cliente. */
+  async function gerarCobranca() {
+    if (!cobrando) return
+    const valor = Number(valorCobranca.replace(',', '.'))
+    if (!valor || valor <= 0) { alert('Informe um valor válido.'); return }
+
+    setProcessando(cobrando.id!)
+    try {
+      const { checkoutUrl, paymentLinkId } = await criarLinkPagamento({
+        solicitacaoId: cobrando.id!,
+        valor,
+        descricao: `Aluguel ${cobrando.moto_nome}`,
+        cliente: {
+          nome: cobrando.nome_completo, email: cobrando.email,
+          telefone: cobrando.telefone, cpf: cobrando.cpf ?? '',
+        },
+      })
+      await solicitacaoService.salvarLinkPagamento(cobrando.id!, checkoutUrl, paymentLinkId, valor)
+      void sendWhatsAppNotification('template_link_pagamento', cobrando.telefone,
+        waParams(cobrando, { link_pagamento: checkoutUrl, valor_total: formatCurrency(valor) }))
+      setCobrando(null); setValorCobranca('')
+      await load()
+    } catch (e) {
+      alert(`Não foi possível gerar a cobrança: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setProcessando(null)
+    }
+  }
+
+  async function copiarLink(s: SolicitacaoAluguel) {
+    if (!s.link_pagamento) return
+    await navigator.clipboard.writeText(s.link_pagamento)
+    setCopiado(s.id!)
+    setTimeout(() => setCopiado(null), 2000)
+  }
+
   async function confirmDelete() {
     if (toDelete) { await solicitacaoService.deletarSolicitacao(toDelete.id!); load() }
-  }
-  async function marcarContratoGerado(s: SolicitacaoAluguel) {
-    const ok = await solicitacaoService.marcarContratoGerado(s.id!)
-    if (ok) void sendWhatsAppNotification('template_contrato_gerado', s.telefone, waParams(s))
-    load()
   }
   async function confirmarPagamento() {
     if (!confirmingPayment) return
@@ -158,6 +213,8 @@ export default function SolicitacoesPage() {
                       <div className="flex items-center gap-2">
                         <p className="font-bold text-white">{s.nome_completo}</p>
                         <StatusBadge label={st.label} color={st.color} />
+                        {s.termo_aceito && <StatusBadge label="Assinado" color="#39FF14" />}
+                        {s.link_pagamento && !s.pagamento_pago && <StatusBadge label="Cobrança enviada" color="#F59E0B" />}
                       </div>
                       <p className="text-sm text-white/60 flex items-center gap-1.5"><Bike size={13} style={{ color: '#39FF14' }} /> {s.moto_nome}</p>
                       <p className="text-sm text-white/60 flex items-center gap-1.5"><Phone size={13} style={{ color: '#39FF14' }} /> {s.telefone}</p>
@@ -173,13 +230,44 @@ export default function SolicitacoesPage() {
                         <Button variant="outline" onClick={() => setRejecting(s)} className="!py-1.5 !px-3 text-xs"><X size={14} /> Rejeitar</Button>
                       </>
                     )}
-                    {(s.status === 'aprovada' || s.status === 'gerar_contrato') && !s.pagamento_pago && (
-                      <Button variant="outline"
-                        onClick={() => { setConfirmingPayment(s); setValorPago(s.valor_total ? String(s.valor_total) : '') }}
-                        className="!py-1.5 !px-3 text-xs"><Wallet size={14} /> Confirmar Pagamento</Button>
+                    {(s.status === 'aprovada' || s.status === 'gerar_contrato') && (
+                      <>
+                        <Button variant="outline" disabled={processando === s.id}
+                          onClick={() => gerarEEnviarContrato(s)} className="!py-1.5 !px-3 text-xs">
+                          {processando === s.id
+                            ? <Loader2 size={14} className="animate-spin" />
+                            : <FileSignature size={14} />}
+                          {s.contrato_pdf_url ? 'Reenviar contrato' : 'Gerar e enviar contrato'}
+                        </Button>
+                        {(s.termo_pdf_url || s.contrato_pdf_url) && (
+                          <a href={s.termo_pdf_url || s.contrato_pdf_url || '#'} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 py-1.5 px-3 text-xs font-semibold rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors">
+                            <FileText size={14} /> {s.termo_aceito ? 'Ver assinado' : 'Ver contrato'}
+                          </a>
+                        )}
+                      </>
                     )}
-                    {s.status === 'aprovada' && (
-                      <Button variant="outline" onClick={() => marcarContratoGerado(s)} className="!py-1.5 !px-3 text-xs"><FileSignature size={14} /> Marcar Contrato Gerado</Button>
+                    {(s.status === 'aprovada' || s.status === 'gerar_contrato') && !s.pagamento_pago && (
+                      <>
+                        {s.link_pagamento ? (
+                          <Button variant="outline" onClick={() => copiarLink(s)} className="!py-1.5 !px-3 text-xs">
+                            {copiado === s.id ? <Check size={14} /> : <Copy size={14} />}
+                            {copiado === s.id ? 'Link copiado!' : 'Copiar link de pagamento'}
+                          </Button>
+                        ) : (
+                          <Button variant="outline" disabled={processando === s.id}
+                            onClick={() => { setCobrando(s); setValorCobranca(s.valor_total ? String(s.valor_total) : '') }}
+                            className="!py-1.5 !px-3 text-xs">
+                            {processando === s.id
+                              ? <Loader2 size={14} className="animate-spin" />
+                              : <Link2 size={14} />}
+                            Gerar link de pagamento
+                          </Button>
+                        )}
+                        <Button variant="outline"
+                          onClick={() => { setConfirmingPayment(s); setValorPago(s.valor_total ? String(s.valor_total) : '') }}
+                          className="!py-1.5 !px-3 text-xs"><Wallet size={14} /> Confirmar Pagamento</Button>
+                      </>
                     )}
                     <Button variant="ghost" onClick={() => setToDelete(s)} className="!py-1.5 !px-3 text-xs text-red-400"><Trash2 size={14} /> Excluir</Button>
                   </div>
@@ -233,6 +321,30 @@ export default function SolicitacoesPage() {
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="outline" onClick={() => setConfirmingPayment(null)}>Cancelar</Button>
           <Button variant="primary" onClick={confirmarPagamento} disabled={!valorPago || Number(valorPago.replace(',', '.')) <= 0}>Confirmar</Button>
+        </div>
+      </Modal>
+
+      <Modal open={!!cobrando} onClose={() => setCobrando(null)} title="Gerar link de pagamento" maxWidth="max-w-md">
+        <p className="text-white/60 text-sm mb-4">
+          Cria uma cobrança na Pagar.me para{' '}
+          <span className="text-white font-semibold">{cobrando?.nome_completo}</span> e envia o link
+          por WhatsApp. O cliente escolhe entre PIX, cartão ou boleto na própria página da Pagar.me.
+        </p>
+        <Input label="Valor total (R$)" type="number" step="0.01" min="0" value={valorCobranca}
+          onChange={setValorCobranca} placeholder="0,00" required />
+        {!cobrando?.cpf && (
+          <p className="text-amber-300 text-xs mt-3 bg-amber-500/10 px-3 py-2 rounded-lg">
+            Esta solicitação não tem CPF preenchido — a Pagar.me exige o documento do cliente e vai
+            recusar a cobrança.
+          </p>
+        )}
+        <div className="flex justify-end gap-3 mt-6">
+          <Button variant="outline" onClick={() => setCobrando(null)}>Cancelar</Button>
+          <Button variant="primary" onClick={gerarCobranca}
+            disabled={!valorCobranca || Number(valorCobranca.replace(',', '.')) <= 0 || processando === cobrando?.id}>
+            {processando === cobrando?.id ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
+            Gerar e enviar
+          </Button>
         </div>
       </Modal>
 
