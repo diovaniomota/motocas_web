@@ -8,9 +8,10 @@ import { supabase } from '@/lib/supabase'
 import {
   LogOut, Mail, ListChecks, ShoppingCart, ReceiptText,
   PlusCircle, ClipboardList, Search, CheckCircle2,
-  ShoppingBag, Calendar, DollarSign, Package, FileText,
+  ShoppingBag, Calendar, DollarSign, Package, FileText, Bike,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import MinhaLocacao from '@/components/cliente/MinhaLocacao'
 
 const G = '#39FF14'
 
@@ -70,6 +71,7 @@ export default function PainelClientePage() {
   const [loading, setLoading] = useState(true)
   const [userName, setUserName] = useState('')
   const [userEmail, setUserEmail] = useState('')
+  const [clienteId, setClienteId] = useState<number | null>(null)
   const [solicitacoes, setSolicitacoes] = useState<Solicitacao[]>([])
   const [pecas, setPecas] = useState<Peca[]>([])
   const [pedidos, setPedidos] = useState<PedidoPeca[]>([])
@@ -78,14 +80,29 @@ export default function PainelClientePage() {
 
   async function loadData() {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-    if (sessionError || !session?.user) { router.push('/login'); return }
+    if (sessionError || !session?.user) { router.push('/cliente/entrar'); return }
 
     const user = session.user
     setUserEmail(user.email || '')
 
-    const { data: userData } = await supabase
-      .from('clientes').select('nome').eq('email', user.email).maybeSingle()
-    setUserName(userData?.nome || user.email?.split('@')[0] || 'Cliente')
+    /* Vínculo pelo auth_uid quando existe. A comparação por e-mail continua
+       como ponte para cadastros anteriores, mas é ela que fazia o cliente ver
+       painel vazio quando digitava o e-mail diferente no formulário. */
+    let cliente: { id: number; nome: string | null } | null = null
+    const porUid = await supabase.from('clientes').select('id, nome')
+      .eq('auth_uid', user.id).maybeSingle()
+    cliente = porUid.data ?? null
+
+    if (!cliente && user.email) {
+      const porEmail = await supabase.from('clientes').select('id, nome')
+        .eq('email', user.email).maybeSingle()
+      cliente = porEmail.data ?? null
+      // amarra de vez, para o próximo acesso não depender mais do e-mail
+      if (cliente) await supabase.from('clientes').update({ auth_uid: user.id }).eq('id', cliente.id)
+    }
+
+    setClienteId(cliente?.id ?? null)
+    setUserName(cliente?.nome || user.email?.split('@')[0] || 'Cliente')
 
     const [solRes, pecasRes, pedRes] = await Promise.all([
       supabase.from('solicitacoes_aluguel')
@@ -111,6 +128,7 @@ export default function PainelClientePage() {
   }
 
   const tabs = [
+    { label: 'Minha Locação', icon: <Bike        size={20} /> },
     { label: 'Solicitações',  icon: <ListChecks  size={20} /> },
     { label: 'Loja de Peças', icon: <ShoppingCart size={20} /> },
     { label: 'Meus Pedidos',  icon: <ReceiptText  size={20} /> },
@@ -205,7 +223,9 @@ export default function PainelClientePage() {
         ) : (
           <>
             {/* ── TAB 0: SOLICITAÇÕES ── */}
-            {tab === 0 && (
+            {tab === 0 && <MinhaLocacao clienteId={clienteId} email={userEmail} />}
+
+            {tab === 1 && (
               <div className="space-y-8">
                 {/* Stats */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -254,7 +274,7 @@ export default function PainelClientePage() {
             )}
 
             {/* ── TAB 1: LOJA ── */}
-            {tab === 1 && (
+            {tab === 2 && (
               <div>
                 {pecas.length === 0 ? (
                   <EmptyState icon={<ShoppingCart size={64} />}
@@ -272,7 +292,7 @@ export default function PainelClientePage() {
             )}
 
             {/* ── TAB 2: PEDIDOS ── */}
-            {tab === 2 && (
+            {tab === 3 && (
               <div>
                 {pedidos.length === 0 ? (
                   <EmptyState icon={<ReceiptText size={64} />}
@@ -386,10 +406,13 @@ function PecaCard({ peca }: { peca: Peca }) {
         <p className="font-bold text-base sm:text-lg text-white mt-auto pt-2">
           R$ {peca.preco.toFixed(2).replace('.', ',')}
         </p>
-        <button className="mt-2 w-full py-2 rounded-lg font-bold text-xs text-black hover:opacity-90 transition-opacity"
+        {/* antes era um botão sem onClick: o cliente clicava e nada acontecia.
+            Agora leva para a loja, que é onde o carrinho existe de verdade. */}
+        <Link href={`/pecas-acessorios?peca=${peca.id}`}
+          className="mt-2 w-full py-2 rounded-lg font-bold text-xs text-black hover:opacity-90 transition-opacity text-center"
           style={{ backgroundColor: G }}>
           Comprar
-        </button>
+        </Link>
       </div>
     </div>
   )

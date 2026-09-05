@@ -16,12 +16,13 @@ import HistoricoSolicitacao from '@/components/admin/HistoricoSolicitacao'
 import AvisoFalhasWhatsApp from '@/components/admin/AvisoFalhasWhatsApp'
 import VistoriaForm, { vistoriaVazia } from '@/components/admin/VistoriaForm'
 import SeletorPreco from '@/components/admin/SeletorPreco'
+import EditarSolicitacao from '@/components/admin/EditarSolicitacao'
 import { entregarMoto, type DadosVistoria } from '@/lib/entrega'
 import type { SolicitacaoAluguel } from '@/types'
 import { SOLICITACAO_STATUS } from '@/types'
 import {
   Mail, Phone, Bike, Calendar, Check, X, Trash2, User, Download, FileSignature, Wallet,
-  Loader2, FileText, Link2, Copy, History,
+  Loader2, FileText, Link2, Copy, History, Search, Pencil, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 const TABELA = 'solicitacoes_aluguel'
@@ -45,6 +46,10 @@ export default function SolicitacoesPage() {
   const [items, setItems] = useState<SolicitacaoAluguel[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('todas')
+  const [busca, setBusca] = useState('')
+  const [pagina, setPagina] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [editar, setEditar] = useState<SolicitacaoAluguel | null>(null)
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [detail, setDetail] = useState<SolicitacaoAluguel | null>(null)
@@ -62,11 +67,31 @@ export default function SolicitacoesPage() {
   const [vistoria, setVistoria] = useState<DadosVistoria>(vistoriaVazia())
   const [salvandoEntrega, setSalvandoEntrega] = useState(false)
 
-  useEffect(() => { load() }, [])
+  const TAMANHO = 20
+
+  /* Busca no servidor: antes a tela puxava a tabela inteira e filtrava no
+     navegador. A busca tem um atraso curto para não consultar a cada tecla. */
+  useEffect(() => {
+    const t = setTimeout(() => { void load() }, busca ? 350 : 0)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca, filtro, dataInicio, dataFim, pagina])
+
+  /* Qualquer filtro novo recomeça da primeira página, senão a busca cairia
+     numa página que não existe mais no resultado. */
+  const filtrar = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPagina(0) }
+  const trocarBusca = filtrar(setBusca)
+  const trocarFiltro = filtrar(setFiltro)
+  const trocarDe = filtrar(setDataInicio)
+  const trocarAte = filtrar(setDataFim)
 
   async function load() {
     setLoading(true)
-    setItems(await solicitacaoService.getSolicitacoes())
+    const { itens, total: qtd } = await solicitacaoService.buscarSolicitacoes({
+      busca, status: filtro, de: dataInicio, ate: dataFim, pagina, tamanho: TAMANHO,
+    })
+    setItems(itens)
+    setTotal(qtd)
     setLoading(false)
   }
 
@@ -222,16 +247,15 @@ export default function SolicitacoesPage() {
     setConfirmingPayment(null); setValorPago(''); load()
   }
 
-  const filtered = items.filter((s) => {
-    if (filtro !== 'todas' && s.status !== filtro) return false
-    const dt = s.created_at?.split('T')[0] ?? ''
-    if (dataInicio && dt < dataInicio) return false
-    if (dataFim && dt > dataFim) return false
-    return true
-  })
+  // a consulta já vem filtrada e paginada do servidor
+  const filtered = items
 
-  function handleExport() {
-    exportToCSV(filtered, `solicitacoes_${new Date().toISOString().split('T')[0]}`, [
+  /* Exporta o resultado inteiro do filtro, não só a página visível. */
+  async function handleExport() {
+    const { itens } = await solicitacaoService.buscarSolicitacoes({
+      busca, status: filtro, de: dataInicio, ate: dataFim, pagina: 0, tamanho: 1000,
+    })
+    exportToCSV(itens, `solicitacoes_${new Date().toISOString().split('T')[0]}`, [
       { key: 'id', label: 'ID' },
       { key: 'nome_completo', label: 'Nome' },
       { key: 'email', label: 'Email' },
@@ -247,13 +271,29 @@ export default function SolicitacoesPage() {
 
   return (
     <>
-      <AdminHeader title="Solicitações" subtitle={`${items.length} solicitação(ões) de aluguel`} />
+      <AdminHeader title="Solicitações" subtitle={`${total} solicitação(ões) de aluguel`} />
 
       <main className="flex-1 p-6 space-y-5">
+        {/* Busca */}
+        <div className="relative max-w-md">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+          <input
+            value={busca} onChange={(e) => trocarBusca(e.target.value)}
+            placeholder="Buscar por nome, e-mail, telefone, CPF ou moto..."
+            className="w-full pl-10 pr-9 py-2.5 rounded-lg bg-[#1a1a1a] border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#39FF14] transition-colors"
+          />
+          {busca && (
+            <button onClick={() => trocarBusca('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-white/40 hover:text-white">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
         {/* Filtros status */}
         <div className="flex gap-2 flex-wrap">
           {['todas', 'pendente', 'em_analise', 'aprovada', 'gerar_contrato', 'rejeitada', 'convertida'].map((f) => (
-            <button key={f} onClick={() => setFiltro(f)}
+            <button key={f} onClick={() => trocarFiltro(f)}
               className="px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors"
               style={filtro === f ? { backgroundColor: '#39FF14', color: '#000' } : { backgroundColor: '#1a1a1a', color: 'rgba(255,255,255,0.6)' }}>
               {f.replace('_', ' ')}
@@ -265,23 +305,23 @@ export default function SolicitacoesPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="block text-xs text-white/50 mb-1">De</label>
-            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)}
+            <input type="date" value={dataInicio} onChange={(e) => trocarDe(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-white/10 text-sm text-white focus:outline-none focus:border-[#39FF14]" />
           </div>
           <div>
             <label className="block text-xs text-white/50 mb-1">Até</label>
-            <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)}
+            <input type="date" value={dataFim} onChange={(e) => trocarAte(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[#1a1a1a] border border-white/10 text-sm text-white focus:outline-none focus:border-[#39FF14]" />
           </div>
           {(dataInicio || dataFim) && (
-            <button onClick={() => { setDataInicio(''); setDataFim('') }}
+            <button onClick={() => { trocarDe(''); trocarAte('') }}
               className="px-3 py-2 rounded-lg text-xs text-white/50 hover:text-white border border-white/10 bg-[#1a1a1a] transition-colors">
               Limpar
             </button>
           )}
           <div className="ml-auto">
             <Button variant="outline" onClick={handleExport}>
-              <Download size={15} /> Exportar CSV ({filtered.length})
+              <Download size={15} /> Exportar CSV ({total})
             </Button>
           </div>
         </div>
@@ -314,6 +354,7 @@ export default function SolicitacoesPage() {
                   </div>
                   <div className="flex gap-2 mt-4 pt-4 border-t border-white/5 flex-wrap">
                     <Button variant="outline" onClick={() => setDetail(s)} className="!py-1.5 !px-3 text-xs"><User size={14} /> Detalhes</Button>
+                    <Button variant="outline" onClick={() => setEditar(s)} className="!py-1.5 !px-3 text-xs"><Pencil size={14} /> Editar</Button>
                     {s.status === 'pendente' && (
                       <>
                         <Button variant="primary" onClick={() => aprovar(s)} className="!py-1.5 !px-3 text-xs"><Check size={14} /> Aprovar</Button>
@@ -373,6 +414,24 @@ export default function SolicitacoesPage() {
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {total > TAMANHO && (
+          <div className="flex items-center justify-between gap-4 pt-2">
+            <p className="text-white/40 text-xs">
+              {pagina * TAMANHO + 1}–{Math.min((pagina + 1) * TAMANHO, total)} de {total}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setPagina((p) => Math.max(0, p - 1))}
+                disabled={pagina === 0} className="!py-1.5 !px-3 text-xs">
+                <ChevronLeft size={14} /> Anterior
+              </Button>
+              <Button variant="outline" onClick={() => setPagina((p) => p + 1)}
+                disabled={(pagina + 1) * TAMANHO >= total} className="!py-1.5 !px-3 text-xs">
+                Próxima <ChevronRight size={14} />
+              </Button>
+            </div>
           </div>
         )}
       </main>
@@ -499,6 +558,10 @@ export default function SolicitacoesPage() {
           </div>
         )}
       </Modal>
+
+      {editar && (
+        <EditarSolicitacao solicitacao={editar} onClose={() => setEditar(null)} onSalvo={load} />
+      )}
 
       <ConfirmDialog open={!!toDelete} onClose={() => setToDelete(null)} onConfirm={confirmDelete}
         title="Excluir Solicitação" danger confirmLabel="Excluir" message={`Excluir a solicitação de "${toDelete?.nome_completo}"?`} />

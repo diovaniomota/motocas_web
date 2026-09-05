@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock } from 'lucide-react'
+import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, MessageCircle } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 
@@ -146,6 +146,17 @@ export default function LoginPage() {
             {loading && <Loader2 size={18} className="animate-spin" />}
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
+
+          {/* Cliente não tem senha: o site nunca teve cadastro. Ele entra por
+              link no WhatsApp, então precisa achar esse caminho daqui. */}
+          <div className="pt-4 mt-2 border-t border-white/10 text-center">
+            <p className="text-white/40 text-xs mb-2">É cliente e alugou uma moto?</p>
+            <Link href="/cliente/entrar"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold hover:underline"
+              style={{ color: '#39FF14' }}>
+              <MessageCircle size={14} /> Receber link de acesso no WhatsApp
+            </Link>
+          </div>
         </form>
       </div>
     </div>

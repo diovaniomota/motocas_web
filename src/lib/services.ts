@@ -269,6 +269,49 @@ export const solicitacaoService = {
     const { data } = await q
     return data || []
   },
+  /** Busca paginada no servidor.
+   *
+   *  As telas carregavam a tabela inteira e filtravam no navegador — funciona
+   *  com 9 registros e travar com 900. `count: 'exact'` vem junto para a
+   *  paginação saber quantas páginas existem sem uma segunda consulta. */
+  async buscarSolicitacoes(opts: {
+    busca?: string
+    status?: string
+    de?: string
+    ate?: string
+    pagina?: number
+    tamanho?: number
+  }): Promise<{ itens: SolicitacaoAluguel[]; total: number }> {
+    const tamanho = opts.tamanho ?? 20
+    const pagina = Math.max(0, opts.pagina ?? 0)
+
+    let q = supabase.from('solicitacoes_aluguel')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (opts.status && opts.status !== 'todas') q = q.eq('status', opts.status)
+    // data no servidor também: filtrar depois de paginar devolveria página errada
+    if (opts.de) q = q.gte('created_at', `${opts.de}T00:00:00`)
+    if (opts.ate) q = q.lte('created_at', `${opts.ate}T23:59:59`)
+
+    const termo = (opts.busca ?? '').trim()
+    if (termo) {
+      // dígitos servem para telefone e CPF, que ficam salvos sem formatação
+      const soDigitos = termo.replace(/\D/g, '')
+      const alvos = [
+        `nome_completo.ilike.%${termo}%`,
+        `email.ilike.%${termo}%`,
+        `moto_nome.ilike.%${termo}%`,
+      ]
+      if (soDigitos) {
+        alvos.push(`telefone.ilike.%${soDigitos}%`, `cpf.ilike.%${soDigitos}%`)
+      }
+      q = q.or(alvos.join(','))
+    }
+
+    const { data, count } = await q.range(pagina * tamanho, pagina * tamanho + tamanho - 1)
+    return { itens: data || [], total: count ?? 0 }
+  },
   async getSolicitacoesPorEmail(email: string): Promise<SolicitacaoAluguel[]> {
     const { data } = await supabase
       .from('solicitacoes_aluguel').select('*').eq('email', email)
