@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import AdminHeader from '@/components/admin/AdminHeader'
 import {
   MessageCircle, Settings, Wifi, WifiOff, QrCode, Loader2, X, RefreshCw,
-  Copy, Check, AlertTriangle, Info, ToggleLeft, ToggleRight, Save, Database
+  Copy, Check, AlertTriangle, Info, ToggleLeft, ToggleRight, Save, Database, LogOut, Smartphone
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -65,6 +65,8 @@ export default function WhatsAppPage() {
   const [state, setState] = useState<ConnectionState>('idle')
   const [qrBase64, setQrBase64] = useState<string>('')
   const [activeTab, setActiveTab] = useState<TabType>('connection')
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   // Configurações de mensagens automáticas
   const [loadingSettings, setLoadingSettings] = useState(true)
@@ -141,6 +143,8 @@ export default function WhatsAppPage() {
   /* ── conectar instância ── */
   const connect = useCallback(async () => {
     if (!config) return
+    // evita empilhar polls quando connect() é chamado de novo (reconexão / troca de aparelho)
+    if (qrPollRef.current) { clearInterval(qrPollRef.current); qrPollRef.current = null }
     setState('connecting')
 
     // Se o backend nunca gerar o QR (ex.: sessão Baileys presa em loop de
@@ -183,6 +187,29 @@ export default function WhatsAppPage() {
     }
   }, [config, checkConnection, fetchQr, api])
 
+  /* ── desconectar o celular pareado e gerar novo QR ── */
+  const disconnectInstance = useCallback(async () => {
+    if (!config) return
+    setDisconnecting(true)
+    try {
+      if (qrPollRef.current) { clearInterval(qrPollRef.current); qrPollRef.current = null }
+      try {
+        await api(`/instance/logout/${config.instance}`, { method: 'POST' })
+      } catch {
+        // servidores compatíveis com a Evolution API expõem o logout como DELETE
+        await api(`/instance/logout/${config.instance}`, { method: 'DELETE' })
+      }
+      setQrBase64('')
+      setConfirmDisconnect(false)
+      setState('connecting')
+      await connect()
+    } catch {
+      setState('error')
+    } finally {
+      setDisconnecting(false)
+    }
+  }, [api, config, connect])
+
   /* ── ao ter config, verificar conexão ── */
   useEffect(() => {
     if (config) connect()
@@ -194,7 +221,7 @@ export default function WhatsAppPage() {
 
   /* ── Polling para verificar se continua conectado ── */
   useEffect(() => {
-    if (state !== 'connected' || !config) return
+    if (state !== 'connected' || !config || disconnecting) return
 
     const interval = setInterval(async () => {
       try {
@@ -208,7 +235,7 @@ export default function WhatsAppPage() {
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [state, config, api, connect])
+  }, [state, config, api, connect, disconnecting])
 
   /* ── carregar configurações do Supabase ── */
   const loadDbSettings = useCallback(async () => {
@@ -415,10 +442,17 @@ export default function WhatsAppPage() {
                   <div><span className="font-semibold text-white/40">Instância:</span> {config?.instance}</div>
                   <div className="truncate"><span className="font-semibold text-white/40">Servidor API:</span> {config?.apiUrl}</div>
                 </div>
-                <button onClick={() => setShowSetup(true)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-white text-xs border border-white/20 hover:bg-white/5 transition-colors">
-                  Alterar Conexão
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                  <button onClick={() => setShowSetup(true)}
+                    className="px-5 py-2.5 rounded-xl font-bold text-white text-xs border border-white/20 hover:bg-white/5 transition-colors">
+                    Alterar Conexão
+                  </button>
+                  <button onClick={() => setConfirmDisconnect(true)}
+                    className="px-5 py-2.5 rounded-xl font-bold text-red-300 text-xs border border-red-500/30 hover:bg-red-500/10 transition-colors flex items-center justify-center gap-1.5">
+                    <LogOut size={13} />
+                    Desconectar celular
+                  </button>
+                </div>
               </div>
             ) : state === 'error' ? (
               <div className="text-center">
@@ -443,14 +477,18 @@ export default function WhatsAppPage() {
                 <h2 className="text-white font-bold text-lg mb-2">Servidor não gerou o QR Code</h2>
                 <p className="text-white/50 text-sm mb-6 leading-relaxed">
                   A API respondeu, mas não conseguiu gerar um QR Code a tempo. Isso costuma acontecer quando o
-                  serviço do WhatsApp (Baileys) fica preso tentando reconectar com uma sessão antiga. Verifique os
-                  logs do servidor e, se necessário, limpe a sessão salva e reinicie o serviço.
+                  serviço do WhatsApp (Baileys) fica preso tentando reconectar com uma sessão antiga.
+                  Limpar a sessão salva costuma resolver — o servidor volta a gerar um QR Code novo.
                 </p>
-                <div className="flex gap-3 justify-center">
+                <div className="flex flex-wrap gap-3 justify-center">
                   <button onClick={connect}
                     className="px-5 py-2.5 rounded-xl font-bold text-black text-sm hover:opacity-90"
                     style={{ backgroundColor: '#39FF14' }}>
                     Tentar novamente
+                  </button>
+                  <button onClick={() => setConfirmDisconnect(true)}
+                    className="px-5 py-2.5 rounded-xl font-bold text-red-300 text-sm border border-red-500/30 hover:bg-red-500/10 transition-colors">
+                    Limpar sessão
                   </button>
                   <button onClick={() => setShowSetup(true)}
                     className="px-5 py-2.5 rounded-xl font-bold text-white text-sm border border-white/20 hover:bg-white/5">
@@ -630,6 +668,16 @@ export default function WhatsAppPage() {
         )}
       </main>
 
+      {/* ── Modal de Desconexão ── */}
+      {confirmDisconnect && (
+        <DisconnectModal
+          instance={config?.instance ?? ''}
+          loading={disconnecting}
+          onConfirm={disconnectInstance}
+          onClose={() => { if (!disconnecting) setConfirmDisconnect(false) }}
+        />
+      )}
+
       {/* ── Modal de Setup ── */}
       {showSetup && (
         <SetupModal
@@ -656,6 +704,60 @@ export default function WhatsAppPage() {
         />
       )}
     </>
+  )
+}
+
+/* ────────────────────────────────────────────────
+   MODAL DE DESCONEXÃO
+──────────────────────────────────────────────── */
+function DisconnectModal({ instance, loading, onConfirm, onClose }: {
+  instance: string
+  loading: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-white/12 bg-[#111] p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-white font-bold text-lg flex items-center gap-2">
+            <Smartphone size={18} className="text-red-400" />
+            Trocar de celular
+          </h2>
+          <button onClick={onClose} disabled={loading}
+            className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 disabled:opacity-40">
+            <X size={18} />
+          </button>
+        </div>
+
+        <p className="text-white/60 text-sm leading-relaxed mb-4">
+          O aparelho conectado hoje sai da lista de <strong className="text-white/80">Dispositivos conectados</strong> do
+          WhatsApp e a sessão salva no servidor é apagada. Em seguida um novo QR Code é gerado para você parear outro celular.
+        </p>
+
+        <div className="p-4 rounded-xl border border-amber-500/25 bg-amber-950/20 text-xs text-amber-100/80 leading-relaxed mb-5">
+          <div className="flex gap-2 items-start">
+            <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+            <span>
+              Enquanto ninguém escanear o novo QR Code, as mensagens automáticas de aluguel
+              {instance ? ` da instância "${instance}"` : ''} não serão enviadas.
+            </span>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} disabled={loading}
+            className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white border border-white/20 hover:bg-white/5 transition-colors disabled:opacity-40">
+            Cancelar
+          </button>
+          <button onClick={onConfirm} disabled={loading}
+            className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-red-600 hover:bg-red-500 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            {loading ? <Loader2 size={15} className="animate-spin" /> : <LogOut size={15} />}
+            {loading ? 'Desconectando...' : 'Desconectar'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
