@@ -5,7 +5,7 @@ import { X, Loader2, CheckCircle2 } from 'lucide-react'
 import { solicitacaoService } from '@/lib/services'
 import { sendWhatsAppNotification } from '@/lib/whatsapp'
 import { formatDate } from '@/components/ui'
-import { digitos, maskCpf, maskPhone, maskCep, maskCnh, maskUf } from '@/lib/mascaras'
+import { digitos, maskCpf, maskPhone, maskCep, maskCnh, maskUf, cpfValido } from '@/lib/mascaras'
 import type { Moto } from '@/types'
 
 const G = '#39FF14'
@@ -32,7 +32,7 @@ export default function SolicitacaoModal({ moto, onClose }: { moto: Moto; onClos
     // um telefone incompleto significa cliente sem nenhuma notificação de WhatsApp
     const tel = digitos(f.telefone)
     if (tel.length < 10 || tel.length > 11) { setError('Telefone incompleto. Informe DDD + número.'); return }
-    if (digitos(f.cpf).length !== 11) { setError('CPF incompleto.'); return }
+    if (!cpfValido(f.cpf)) { setError('CPF inválido. Confira os números digitados.'); return }
     if (digitos(f.cep).length !== 8) { setError('CEP incompleto.'); return }
 
     setSaving(true)

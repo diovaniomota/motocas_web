@@ -33,5 +33,23 @@ export function maskCep(v: string): string {
 export const maskCnh = (v: string) => digitos(v).slice(0, 11)
 export const maskUf = (v: string) => v.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2)
 
-export const cpfValido = (v: string) => digitos(v).length === 11
+/** Valida CPF de verdade, com dígitos verificadores.
+ *
+ *  Só conferir o tamanho não basta: a Pagar.me recusa transação de cartão com
+ *  `validation_error | customer | Invalid CPF` quando os dígitos não fecham —
+ *  mas aceita PIX com o mesmo CPF, então o problema passa despercebido até
+ *  alguém tentar pagar com cartão. E o CPF também vai impresso no contrato. */
+export function cpfValido(v: string): boolean {
+  const d = digitos(v)
+  if (d.length !== 11) return false
+  if (/^(\d)\1{10}$/.test(d)) return false // 111.111.111-11 e afins passam na conta
+
+  for (const ate of [9, 10]) {
+    let soma = 0
+    for (let i = 0; i < ate; i++) soma += Number(d[i]) * (ate + 1 - i)
+    const dv = ((soma * 10) % 11) % 10
+    if (dv !== Number(d[ate])) return false
+  }
+  return true
+}
 export const telefoneValido = (v: string) => [10, 11].includes(digitos(v).length)
