@@ -90,3 +90,41 @@ export const RAIOS_POR_RODA = 5
 
 /** Meia-largura da moto: formas e traços são espelhados nesses dois planos. */
 export const LARGURA = 0.15
+
+
+/* ── piloto ──────────────────────────────────────────────────
+   Postura de quem está rodando relaxado: tronco levemente à frente, braço
+   esticado até o guidão, perna dobrada na pedaleira. O capacete é um círculo
+   à parte porque é ele que faz a figura ler como pessoa. */
+
+export const CAPACETE: { centro: [number, number]; raio: number } = {
+  centro: [0.12, 2.06],
+  raio: 0.175,
+}
+
+export const PILOTO: { nome: string; pontos: [number, number][]; grossura: number }[] = [
+  {
+    // tronco: do quadril no banco até o ombro
+    nome: 'tronco',
+    grossura: 0.095,
+    pontos: [[-0.42, 1.30], [-0.22, 1.58], [-0.02, 1.84]],
+  },
+  {
+    // braço até o guidão
+    nome: 'braco',
+    grossura: 0.055,
+    pontos: [[-0.02, 1.84], [0.34, 1.74], [0.66, 1.60]],
+  },
+  {
+    // coxa e canela, dobradas na pedaleira
+    nome: 'perna',
+    grossura: 0.07,
+    pontos: [[-0.42, 1.30], [-0.04, 1.10], [-0.12, 0.74]],
+  },
+  {
+    // pé apoiado
+    nome: 'pe',
+    grossura: 0.05,
+    pontos: [[-0.20, 0.72], [0.02, 0.72]],
+  },
+]

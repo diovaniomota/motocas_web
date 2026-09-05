@@ -13,11 +13,11 @@ import {
   BoxGeometry, BufferAttribute, BufferGeometry, CatmullRomCurve3, Color, DoubleSide,
   EdgesGeometry, ExtrudeGeometry, Fog, Group, LineBasicMaterial, LineSegments, Mesh,
   MeshBasicMaterial, PerspectiveCamera, Points, PointsMaterial, Scene, Shape,
-  TorusGeometry, TubeGeometry, Vector3, WebGLRenderer,
+  SphereGeometry, TorusGeometry, TubeGeometry, Vector3, WebGLRenderer,
 } from 'three'
 import {
-  FORMAS, LARGURA, RAIOS_POR_RODA, RODA_ARO_INTERNO, RODA_FRENTE, RODA_RAIO,
-  RODA_TRAS, RODA_TUBO, TRACOS,
+  CAPACETE, FORMAS, LARGURA, PILOTO, RAIOS_POR_RODA, RODA_ARO_INTERNO, RODA_FRENTE,
+  RODA_RAIO, RODA_TRAS, RODA_TUBO, TRACOS,
 } from './motoPerfil'
 
 const VERDE = 0x39ff14
@@ -79,6 +79,30 @@ function construirMoto(cor: number) {
     }
   }
 
+  // piloto: um tom mais claro para destacar da moto
+  const pele = new MeshBasicMaterial({ color: 0x8cff6a, transparent: true, opacity: 0.92 })
+  descartaveis.push(pele)
+
+  const corpoPiloto = new Group()
+  for (const parte of PILOTO) {
+    const curva = new CatmullRomCurve3(parte.pontos.map(([x, y]) => new Vector3(x, y, 0)))
+    const geo = new TubeGeometry(curva, 20, parte.grossura, 6, false)
+    descartaveis.push(geo)
+    for (const z of [-LARGURA * 0.5, LARGURA * 0.5]) {
+      const m = new Mesh(geo, pele)
+      m.position.z = z
+      corpoPiloto.add(m)
+    }
+  }
+
+  const capacete = new SphereGeometry(CAPACETE.raio, 16, 12)
+  descartaveis.push(capacete)
+  const cabeca = new Mesh(capacete, pele)
+  cabeca.position.set(CAPACETE.centro[0], CAPACETE.centro[1], 0)
+  corpoPiloto.add(cabeca)
+
+  grupo.add(corpoPiloto)
+
   // rodas
   const rodas: Group[] = []
   for (const [cx, cy] of [RODA_TRAS, RODA_FRENTE]) {
@@ -102,13 +126,14 @@ function construirMoto(cor: number) {
     rodas.push(roda)
   }
 
-  // o perfil é desenhado com o chão em y=0; centraliza para girar pelo meio
-  grupo.position.y = -0.85
+  // o perfil é desenhado com o chão em y=0; centraliza para girar pelo meio.
+  // Com o piloto o conjunto vai até ~2.24 de altura, daí o deslocamento maior
+  grupo.position.y = -1.12
 
   const externo = new Group()
   externo.add(grupo)
 
-  return { objeto: externo, rodas, descartaveis }
+  return { objeto: externo, rodas, piloto: corpoPiloto, descartaveis }
 }
 
 export default function CenaTres({
@@ -164,7 +189,7 @@ export default function CenaTres({
       moto = construirMoto(VERDE)
       // à direita e um pouco à frente, longe do texto do hero
       moto.objeto.position.set(6.2, 3.4, 4)
-      moto.objeto.scale.setScalar(2.6)
+      moto.objeto.scale.setScalar(2.4)
       cena.add(moto.objeto)
     }
 
@@ -206,24 +231,39 @@ export default function CenaTres({
 
       const t = (agora - inicio) / 1000
 
+      // a malha corre em direção à câmera e reaparece no fundo: é isso que dá
+      // a sensação de estrada passando, muito mais que girar no próprio eixo
+      const comprimento = LINHAS * ESPACO
+      const avanco = (t * 5.5) % comprimento
+
       for (let i = 0; i < posicao.count; i++) {
         const x = base[i * 3]
-        const z = base[i * 3 + 2]
+        let z = base[i * 3 + 2] + avanco
+        if (z > comprimento / 2) z -= comprimento
+        posicao.setZ(i, z)
         // duas ondas cruzadas dão um movimento orgânico, sem parecer repetição
         posicao.setY(i, Math.sin(x * 0.28 + t * 0.7) * 0.8 + Math.cos(z * 0.22 + t * 0.5) * 0.6)
       }
       posicao.needsUpdate = true
 
-      pontos.rotation.y = t * 0.04
-
       if (moto) {
-        // rodas girando: é o que faz a moto parecer em movimento e não um
-        // desenho parado
-        for (const roda of moto.rodas) roda.rotation.z = -t * 2.4
-        moto.objeto.position.y = 3.4 + Math.sin(t * 0.7) * 0.28
-        // oscila em torno do eixo vertical para revelar que tem volume,
-        // sem nunca mostrar a moto de frente (onde o perfil não existe)
-        moto.objeto.rotation.y = -0.35 + Math.sin(t * 0.35) * 0.28 + mouseX * 0.12
+        // rodas girando rápido, no sentido de quem anda para a frente
+        for (const roda of moto.rodas) roda.rotation.z = -t * 6
+
+        // sobe e desce como quem passa por ondulação da pista, com um
+        // repique curto por cima para não virar um balanço de berço
+        const solavanco = Math.sin(t * 2.4) * 0.06 + Math.sin(t * 5.7) * 0.02
+        moto.objeto.position.y = 3.5 + Math.sin(t * 0.9) * 0.18 + solavanco
+
+        // leve cabeceio: nariz sobe ao acelerar, desce ao aliviar
+        moto.objeto.rotation.z = Math.sin(t * 0.6) * 0.05 + solavanco * 0.35
+
+        // oscila em torno do eixo vertical para revelar volume, sem nunca
+        // mostrar a moto de frente (onde o perfil não existe)
+        moto.objeto.rotation.y = -0.32 + Math.sin(t * 0.35) * 0.22 + mouseX * 0.12
+
+        // o piloto acompanha o solavanco com atraso, como corpo de verdade
+        moto.piloto.rotation.z = -solavanco * 0.5
       }
 
       camera.position.x += (mouseX * 2.2 - camera.position.x) * 0.03
