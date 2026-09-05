@@ -1,19 +1,65 @@
 'use client'
 
-// Cena 3D de fundo — a malha em perspectiva que corre sob o conteúdo.
+// Cena 3D de fundo: a malha em perspectiva e, opcionalmente, a moto flutuando
+// sobre ela.
 //
-// Só é carregada por Fundo3D, e só quando vale a pena. Aqui dentro pode
-// existir three.js à vontade; o custo já foi decidido lá fora.
+// A moto entra na MESMA cena em vez de um segundo canvas — dois contextos
+// WebGL na mesma página é o dobro de custo para o mesmo resultado.
 //
 // Importa peça por peça em vez de `import * as THREE`: assim o bundler
 // descarta o resto da biblioteca, que é a maior parte dela.
 import { useEffect, useRef } from 'react'
 import {
-  BufferAttribute, BufferGeometry, Color, Fog, Points, PointsMaterial,
-  PerspectiveCamera, Scene, WebGLRenderer,
+  AdditiveBlending, BufferAttribute, BufferGeometry, Color, DoubleSide, Fog, Mesh,
+  PerspectiveCamera, PlaneGeometry, Points, PointsMaterial, Scene, ShaderMaterial,
+  TextureLoader, WebGLRenderer, type Texture,
 } from 'three'
 
 const VERDE = 0x39ff14
+
+/* ── recorte do fundo da foto ──────────────────────────────────
+   As fotos da frota são de catálogo: perfil lateral em fundo cinza claro de
+   estúdio. Em vez de exigir PNG recortado, o próprio shader descarta o que
+   for claro E sem cor — a moto é preta com tanque vermelho, então sobra.
+   O corte é suave para a borda não ficar serrilhada. */
+const FRAGMENTO = `
+  varying vec2 vUv;
+  uniform sampler2D mapa;
+  uniform float opacidade;
+
+  void main() {
+    vec4 c = texture2D(mapa, vUv);
+    float maxc = max(c.r, max(c.g, c.b));
+    float minc = min(c.r, min(c.g, c.b));
+    float saturacao = maxc - minc;
+    float luz = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+
+    // limiares calibrados na foto real da frota: acima disso sobrava a sombra
+    // do estúdio no rodapé e um halo claro em volta da silhueta
+    float fundo = smoothstep(0.55, 0.78, luz) * (1.0 - smoothstep(0.05, 0.16, saturacao));
+    float a = (1.0 - fundo) * opacidade;
+    if (a < 0.01) discard;
+    gl_FragColor = vec4(c.rgb, a);
+  }
+`
+
+const VERTICE = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+
+/** Brilho suave sob a moto, para ela não parecer colada no vazio. */
+const BRILHO = `
+  varying vec2 vUv;
+  void main() {
+    float d = distance(vUv, vec2(0.5));
+    float i = smoothstep(0.5, 0.0, d);
+    gl_FragColor = vec4(0.224, 1.0, 0.078, i * 0.18);
+  }
+`
 
 /** Pontos numa grade no plano do chão; a onda é aplicada quadro a quadro. */
 function malha(colunas: number, linhas: number, espaco: number) {
@@ -29,7 +75,13 @@ function malha(colunas: number, linhas: number, espaco: number) {
   return posicoes
 }
 
-export default function CenaTres({ intensidade = 1 }: { intensidade?: number }) {
+export default function CenaTres({
+  intensidade = 1, moto,
+}: {
+  intensidade?: number
+  /** URL da foto da moto. Sem ela, fica só a malha. */
+  moto?: string
+}) {
   const container = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -61,7 +113,7 @@ export default function CenaTres({ intensidade = 1 }: { intensidade?: number }) 
 
     let renderer: WebGLRenderer
     try {
-      renderer = new WebGLRenderer({ alpha: true, antialias: false, powerPreference: 'low-power' })
+      renderer = new WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' })
     } catch {
       return // driver sem WebGL: a seção fica sem o fundo, e só
     }
@@ -69,6 +121,51 @@ export default function CenaTres({ intensidade = 1 }: { intensidade?: number }) 
     // teto no pixel ratio: em tela retina o custo dobra sem ganho visível aqui
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     alvo.appendChild(renderer.domElement)
+
+    /* ── a moto ── */
+    let planoMoto: Mesh | null = null
+    let planoBrilho: Mesh | null = null
+    let textura: Texture | null = null
+
+    if (moto) {
+      const carregador = new TextureLoader()
+      carregador.setCrossOrigin('anonymous')
+      carregador.load(moto, (tex) => {
+        textura = tex
+        const img = tex.image as { width: number; height: number }
+        const proporcao = img.width / Math.max(1, img.height)
+
+        const altura = 7.5
+        planoMoto = new Mesh(
+          new PlaneGeometry(altura * proporcao, altura),
+          new ShaderMaterial({
+            uniforms: { mapa: { value: tex }, opacidade: { value: 1 } },
+            vertexShader: VERTICE,
+            fragmentShader: FRAGMENTO,
+            transparent: true,
+            side: DoubleSide,
+            depthWrite: false,
+          }),
+        )
+        planoMoto.position.set(0, 4.2, 6)
+        cena.add(planoMoto)
+
+        planoBrilho = new Mesh(
+          new PlaneGeometry(altura * proporcao * 1.1, altura * 0.5),
+          new ShaderMaterial({
+            uniforms: {},
+            vertexShader: VERTICE,
+            fragmentShader: BRILHO,
+            transparent: true,
+            blending: AdditiveBlending,
+            depthWrite: false,
+          }),
+        )
+        planoBrilho.rotation.x = -Math.PI / 2
+        planoBrilho.position.set(0, 0.15, 6)
+        cena.add(planoBrilho)
+      })
+    }
 
     function medir() {
       if (!alvo) return
@@ -117,9 +214,22 @@ export default function CenaTres({ intensidade = 1 }: { intensidade?: number }) 
       posicao.needsUpdate = true
 
       pontos.rotation.y = t * 0.04
+
+      if (planoMoto) {
+        // flutua devagar e inclina de leve seguindo o mouse: dá volume sem
+        // revelar que é um plano
+        planoMoto.position.y = 4.2 + Math.sin(t * 0.8) * 0.22
+        planoMoto.rotation.y = mouseX * 0.16
+        planoMoto.rotation.z = -mouseX * 0.02
+        if (planoBrilho) {
+          planoBrilho.position.y = 0.15
+          ;(planoBrilho.material as ShaderMaterial).opacity = 1
+        }
+      }
+
       camera.position.x += (mouseX * 2.2 - camera.position.x) * 0.03
       camera.position.y += (6 - mouseY * 1.4 - camera.position.y) * 0.03
-      camera.lookAt(0, 0, 0)
+      camera.lookAt(0, 2, 0)
 
       renderer.render(cena, camera)
     }
@@ -130,12 +240,21 @@ export default function CenaTres({ intensidade = 1 }: { intensidade?: number }) 
       observador.disconnect()
       window.removeEventListener('pointermove', moveu)
       window.removeEventListener('resize', medir)
+
+      for (const m of [planoMoto, planoBrilho]) {
+        if (!m) continue
+        cena.remove(m)
+        m.geometry.dispose()
+        ;(m.material as ShaderMaterial).dispose()
+      }
+      textura?.dispose()
+
       renderer.dispose()
       geometria.dispose()
       pontos.material.dispose()
       if (renderer.domElement.parentNode === alvo) alvo.removeChild(renderer.domElement)
     }
-  }, [intensidade])
+  }, [intensidade, moto])
 
   return <div ref={container} className="absolute inset-0" aria-hidden="true" />
 }

@@ -24,7 +24,13 @@ const CenaTres = dynamic(() => import('./CenaTres'), { ssr: false, loading: () =
 /** Largura a partir da qual vale a pena. Abaixo disso é celular. */
 const LARGURA_MINIMA = 1024
 
-export default function Fundo3D({ intensidade = 1 }: { intensidade?: number }) {
+export default function Fundo3D({
+  intensidade = 1, moto,
+}: {
+  intensidade?: number
+  /** foto da moto para flutuar na cena; sem ela fica só a malha */
+  moto?: string
+}) {
   const marcador = useRef<HTMLDivElement | null>(null)
   const [carregar, setCarregar] = useState(false)
 
@@ -50,7 +56,7 @@ export default function Fundo3D({ intensidade = 1 }: { intensidade?: number }) {
     <div ref={marcador} className="absolute inset-0 overflow-hidden pointer-events-none">
       {carregar && (
         <div className="absolute inset-0 fundo3d-entrada">
-          <CenaTres intensidade={intensidade} />
+          <CenaTres intensidade={intensidade} moto={moto} />
         </div>
       )}
     </div>
