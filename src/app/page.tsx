@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { Zap, ShoppingBag, Bike, Phone, Mail, MapPin, ExternalLink } from 'lucide-react'
 import { motoService, pecaService } from '@/lib/services'
 import type { Moto, Peca } from '@/types'
+import SecaoPrecos from '@/components/public/SecaoPrecos'
+import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { MotoCard, PecaCard, SectionHeader } from '@/components/public/PublicCards'
@@ -80,6 +82,8 @@ export default function HomePage() {
       </section>
 
       {/* PEÇAS */}
+      <SecaoPrecos />
+
       <section className="py-20 px-6 bg-black">
         <div className="max-w-[1320px] mx-auto">
           <SectionHeader eyebrow="Loja MOTOCAS" title="Peças e acessórios" subtitle="Uma vitrine com leitura melhor, foco em estoque e um caminho de compra mais claro para o cliente." />
@@ -134,6 +138,7 @@ export default function HomePage() {
       </section>
 
       <PublicFooter />
+      <BotaoWhatsApp />
     </div>
   )
 }

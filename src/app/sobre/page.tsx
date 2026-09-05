@@ -1,5 +1,6 @@
 'use client'
 
+import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { SectionHeader } from '@/components/public/PublicCards'
@@ -29,6 +30,7 @@ export default function SobrePage() {
         </div>
       </section>
       <PublicFooter />
+      <BotaoWhatsApp />
     </div>
   )
 }

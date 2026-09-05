@@ -1,17 +1,28 @@
 'use client'
 
-import { useState } from 'react'
-import { Zap, ShoppingBag, Check } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Zap, ShoppingBag, Check, MessageCircle } from 'lucide-react'
 import type { Moto, Peca } from '@/types'
 import { CATEGORIAS_PECA } from '@/types'
 import { useCart } from '@/lib/cart'
 import SolicitacaoModal from './SolicitacaoModal'
+import { carregarPrecos, precoDiaria, formatarPreco } from '@/lib/precos'
+import { linkWhatsApp } from './BotaoWhatsApp'
+import type { TipoAluguel } from '@/types'
 
 const G = '#39FF14'
 
 export function MotoCard({ moto }: { moto: Moto }) {
   const [open, setOpen] = useState(false)
+  const [diaria, setDiaria] = useState<TipoAluguel | null>(null)
   const img = moto.foto_url || 'https://images.unsplash.com/photo-1558981852-426c6c22a060?w=400&h=300&fit=crop'
+
+  // a promise é compartilhada: 8 cards na grade fazem 1 consulta, não 8
+  useEffect(() => {
+    let vivo = true
+    void carregarPrecos().then((t) => { if (vivo) setDiaria(precoDiaria(t)) })
+    return () => { vivo = false }
+  }, [])
 
   return (
     <>
@@ -24,13 +35,34 @@ export function MotoCard({ moto }: { moto: Moto }) {
         </div>
         <div className="p-4 flex flex-col flex-1">
           <p className="font-extrabold text-white text-sm truncate">{moto.nomemoto} {moto.anomoto}</p>
-          <p className="text-xs truncate mt-0.5" style={{ color: G }}>{moto.placamoto || 'Sem placa'} · {moto.cormoto || '-'}</p>
+          {/* a placa saiu daqui: é página pública e indexável, não ajuda o
+              visitante a decidir e serve para clonagem e anúncio falso */}
+          <p className="text-xs truncate mt-0.5 text-white/50">
+            {moto.cormoto || 'Cor não informada'}
+            {moto.kmatualmoto ? ` · ${moto.kmatualmoto} km` : ''}
+          </p>
+
+          {diaria && (
+            <p className="mt-2.5 text-lg font-extrabold leading-none" style={{ color: G }}>
+              {formatarPreco(Number(diaria.valor_aluguel || 0))}
+              <span className="text-xs font-semibold text-white/50 ml-1">
+                /{(diaria.tipo_aluguel || '').toLowerCase().startsWith('di') ? 'dia' : (diaria.tipo_aluguel || '').toLowerCase()}
+              </span>
+            </p>
+          )}
+
           <div className="flex items-center gap-2 mt-3 px-2.5 py-2 rounded-xl bg-white/4 text-xs text-white/70">
             <Zap size={12} style={{ color: G }} /> Solicitação rápida
           </div>
           <button onClick={() => setOpen(true)} className="mt-3 w-full py-2.5 rounded-xl font-bold text-xs text-black hover:opacity-90 transition-opacity" style={{ backgroundColor: G }}>
             Solicitar Aluguel
           </button>
+          {/* conversa já preenchida com a moto que a pessoa estava vendo */}
+          <a href={linkWhatsApp(`alugar a ${moto.nomemoto ?? 'moto'}`)}
+            target="_blank" rel="noopener noreferrer"
+            className="mt-2 w-full py-2 rounded-xl font-bold text-xs text-white/80 border border-white/15 hover:bg-white/5 transition-colors flex items-center justify-center gap-1.5">
+            <MessageCircle size={13} /> Tirar dúvida
+          </a>
         </div>
       </div>
       {open && <SolicitacaoModal moto={moto} onClose={() => setOpen(false)} />}

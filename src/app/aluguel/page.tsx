@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Bike } from 'lucide-react'
 import { motoService } from '@/lib/services'
 import type { Moto } from '@/types'
+import BotaoWhatsApp from '@/components/public/BotaoWhatsApp'
 import PublicNavbar from '@/components/public/PublicNavbar'
 import PublicFooter from '@/components/public/PublicFooter'
 import { MotoCard, SectionHeader } from '@/components/public/PublicCards'
@@ -38,6 +39,7 @@ export default function AluguelPage() {
         </div>
       </section>
       <PublicFooter />
+      <BotaoWhatsApp />
     </div>
   )
 }
